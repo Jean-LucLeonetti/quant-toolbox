@@ -1,6 +1,7 @@
 from src.research.stock_analysis.pipeline import run_stock_analysis
 from src.research.universe_build.pipeline import UniversePipeline
 from src.research.data_build.pipeline import DataBuildPipeline
+from src.research.pairs.pipeline import PairsExplorationPipeline
 from src.core.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -31,8 +32,8 @@ class QuantPipeline:
             # Default to sp500_utilities if no config provided
             success = pipeline.build("sp500_utilities", "2015-01-01", "2025-12-31")
         elif mode == "pairs":
-            logger.warning("Pairs trading mode not yet implemented in the core pipeline.")
-            success = False
+            pipeline = PairsExplorationPipeline(universe_name="sp500_utilities")
+            success = pipeline.run(start="2015-01-01", end="2025-12-31")
         else:
             logger.error(f"Unknown analysis mode: {mode}")
             success = False
