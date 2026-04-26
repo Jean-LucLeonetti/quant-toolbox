@@ -380,8 +380,6 @@ class PairsExplorationPipeline:
             betas.append(theta[0])
             spreads.append(e) 
             
-            spreads.append(e) 
-            
         return pd.Series(spreads, index=y.index), pd.Series(betas, index=y.index)
 
     def _plot_portfolio_curve(self, portfolio_returns: pd.Series):

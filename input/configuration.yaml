@@ -1,17 +1,16 @@
 data:
-  ticker: "FLY"
-  start_date: "2015-01-01"
-  end_date: "2026-04-26"
-  universe: "sp500"
+  end_date: '2026-04-26'
   excluded_periods:
-    - start: "2020-02-20"
-      end: "2020-05-20"
-
+  - end: '2020-05-20'
+    start: '2020-02-20'
+  start_date: '2015-01-01'
+  ticker: FLY
+  universe: etf_commodity
 pairs:
-  z_window: 60
+  coint_mode: johansen
+  hedge_mode: kalman_filter
+  portfolio_size: 30
+  regime_filter: true
   z_entry: 2.0
   z_exit: 0.5
-  hedge_mode: "static_ols"
-  coint_mode: "engle_granger"
-  regime_filter: true
-  portfolio_size: 30
+  z_window: 60
