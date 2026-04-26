@@ -33,7 +33,8 @@ class QuantPipeline:
             success = pipeline.refresh([
                 "sp500", "sp500_utilities", "sp500_utilities_staples", 
                 "etf_pairs", "etf_sector", "etf_country", "etf_commodity",
-                "sp500_banks", "sp500_tech", "sp500_reits"
+                "sp500_banks", "sp500_tech", "sp500_reits",
+                "cross_listed", "cef_pimco"
             ])
         elif mode == "data_build":
             pipeline = DataBuildPipeline()

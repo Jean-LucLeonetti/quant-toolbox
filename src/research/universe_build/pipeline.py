@@ -59,6 +59,13 @@ class UniversePipeline:
             elif uni == "sp500_reits":
                 # Universe F: REITs
                 tickers = ["PLD", "AMT", "EQIX", "CCI", "PSA", "O", "SPG", "WELL", "AVB", "EQR", "VTR", "SBAC", "DLR", "ARE", "EXR"]
+            elif uni == "cross_listed":
+                # Universe G: Dual-listed / Cross-listed
+                # Note: BHP.AX and RIO.L require specific yfinance exchange suffixes.
+                tickers = ["CCL", "CUK", "BHP", "BHP.AX", "RIO", "RIO.L"]
+            elif uni == "cef_pimco":
+                # Universe H: PIMCO Closed-End Funds
+                tickers = ["PDI", "PCN", "PKO", "PTY", "PCI"] # Note: PCI merged historically, included for deeper backtests
             else:
                 logger.warning(f"Unknown universe type: {uni}")
                 continue
