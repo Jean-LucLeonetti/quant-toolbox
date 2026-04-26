@@ -69,10 +69,11 @@ class DataBuildPipeline:
             # Ensure index is datetime and filtered for the range
             df.index = pd.to_datetime(df.index)
             # We use 'Close' as it should be the adjusted close from yfinance auto_adjust=True
-            # However, yfinance sometimes returns a MultiIndex if multiple tickers were requested, 
-            # but here we fetch one by one. Check if 'Close' is a column.
             if 'Close' in df.columns:
-                ticker_series[ticker] = df['Close']
+                close_series = df['Close']
+                if isinstance(close_series, pd.DataFrame):
+                    close_series = close_series.iloc[:, 0]
+                ticker_series[ticker] = close_series
             else:
                 logger.warning(f"Ticker {ticker} missing 'Close' column? Columns: {df.columns}")
 

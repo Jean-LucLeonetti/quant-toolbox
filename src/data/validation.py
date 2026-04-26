@@ -36,16 +36,28 @@ def validate_ticker_data(ticker: str, df: pd.DataFrame, expected_start: str, exp
     if df is None or df.empty:
         return ValidationResult(ticker=ticker, is_valid=False, errors=["No data found"])
 
-    # Check coverage
-    actual_start = df.index.min().strftime('%Y-%m-%d')
-    actual_end = df.index.max().strftime('%Y-%m-%d')
+    # Check coverage with a small grace period for weekends/holidays
+    actual_start = df.index.min()
+    actual_end = df.index.max()
     
-    if actual_start > expected_start:
-        errors.append(f"Insufficient coverage: starts at {actual_start}, expected {expected_start}")
+    expected_start_ts = pd.to_datetime(expected_start)
+    expected_end_ts = pd.to_datetime(expected_end)
+    
+    # If actual start is more than 7 days after expected start
+    if actual_start > expected_start_ts + pd.Timedelta(days=7):
+        errors.append(f"Insufficient coverage: starts at {actual_start.date()}, expected near {expected_start}")
+    
+    # We don't usually care about the end date as much if we're in the middle of it, 
+    # but if we're doing historical backtest, it matters. 
+    # However, for today's date, yfinance might not have today's close yet.
     
     # Check for NaNs in 'Close'
-    nan_count = df['Close'].isna().sum()
-    if nan_count > 0:
+    close_series = df['Close']
+    if isinstance(close_series, pd.DataFrame):
+        close_series = close_series.iloc[:, 0]
+    
+    nan_count = close_series.isna().sum()
+    if int(nan_count) > 0:
         errors.append(f"Found {nan_count} NaN values in Close price")
 
     # Check for internal gaps (> 5 trading days)
@@ -57,15 +69,14 @@ def validate_ticker_data(ticker: str, df: pd.DataFrame, expected_start: str, exp
         errors.append(f"Internal gap detected: max gap of {max_gap} days")
 
     # Check for stale prices (>= 5 consecutive identical closes)
-    # Identical closes can happen in low volume, but for S&P 500 utilities it's suspicious.
-    stale_mask = (df['Close'] == df['Close'].shift(1))
+    stale_mask = (close_series == close_series.shift(1))
     # Simple check for sequences
     consecutive_stale = stale_mask.rolling(window=5).sum()
     if (consecutive_stale >= 4).any(): # 4 True in a row means 5 identical values
         warnings.append("Stale prices detected (5+ consecutive identical closes)")
 
     # Check for outliers (> 50% single day move)
-    returns = df['Close'].pct_change().abs()
+    returns = close_series.pct_change().abs()
     outliers = returns[returns > 0.5]
     if not outliers.empty:
         errors.append(f"Extreme price moves detected (>50%): {outliers.index.tolist()}")
@@ -77,7 +88,7 @@ def validate_ticker_data(ticker: str, df: pd.DataFrame, expected_start: str, exp
         is_valid=is_valid,
         errors=errors,
         warnings=warnings,
-        start_date=actual_start,
-        end_date=actual_end,
-        nan_count=nan_count
+        start_date=actual_start.strftime('%Y-%m-%d'),
+        end_date=actual_end.strftime('%Y-%m-%d'),
+        nan_count=int(nan_count)
     )

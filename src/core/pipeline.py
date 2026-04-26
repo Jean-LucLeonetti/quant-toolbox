@@ -24,8 +24,8 @@ class QuantPipeline:
             success = run_stock_analysis(self.config_path)
         elif mode == "universe_build":
             pipeline = UniversePipeline()
-            # For now, we refresh both the full S&P 500 and our Universe 1
-            success = pipeline.refresh(["sp500", "sp500_utilities_staples"])
+            # Refresh our core universes
+            success = pipeline.refresh(["sp500", "sp500_utilities", "sp500_utilities_staples"])
         elif mode == "data_build":
             pipeline = DataBuildPipeline()
             # Default to sp500_utilities if no config provided
