@@ -128,7 +128,43 @@ class PairsExplorationPipeline:
 
         self._plot_normalized_pairs(prices, list(zip(top_5_coint['Asset_1'], top_5_coint['Asset_2'])))
 
+        # 6. Generate Markdown Ranking Report
+        self._generate_ranking_report(coint_df)
+
         return True
+
+    def _generate_ranking_report(self, df: pd.DataFrame):
+        """
+        @brief Generates a readable markdown report of the ranked pairs.
+        """
+        report_path = f"output/reports/{self.universe_name}_pairs_ranking.md"
+        os.makedirs(os.path.dirname(report_path), exist_ok=True)
+        
+        # Sort and filter for top 20
+        ranked_df = df.sort_values('Coint_P_Value').head(20)
+        
+        with open(report_path, "w") as f:
+            f.write(f"# Pairs Ranking Report: {self.universe_name}\n\n")
+            f.write("This report ranks pairs by their cointegration significance (Engle-Granger test).\n\n")
+            
+            # Format columns for display
+            display_df = ranked_df[[
+                'Asset_1', 'Asset_2', 'Correlation', 'Hedge_Ratio', 
+                'Coint_P_Value', 'Half_Life_Days', 'Is_Cointegrated'
+            ]].copy()
+            
+            # Style the p-values and half-life
+            def style_p(p): return f"**{p:.4f}**" if p < 0.05 else f"{p:.4f}"
+            display_df['Coint_P_Value'] = display_df['Coint_P_Value'].apply(style_p)
+            display_df['Half_Life_Days'] = display_df['Half_Life_Days'].map(lambda x: f"{x:.1f}" if not np.isnan(x) else "∞")
+            display_df['Correlation'] = display_df['Correlation'].map(lambda x: f"{x:.4f}")
+            display_df['Hedge_Ratio'] = display_df['Hedge_Ratio'].map(lambda x: f"{x:.4f}")
+            
+            f.write(display_df.to_markdown(index=False))
+            f.write("\n\n## Visual Check\n")
+            f.write("The top 5 pairs are plotted in `output/pairs/` for visual verification of mean reversion.\n")
+
+        logger.info(f"Ranking report saved to {report_path}")
 
     def _plot_normalized_pairs(self, prices: pd.DataFrame, pairs: List[Tuple[str, str]]):
         """
