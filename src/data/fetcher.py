@@ -1,7 +1,7 @@
 import yfinance as yf
 import pandas as pd
 from typing import Optional
-from core.logger import setup_logger
+from src.core.logger import setup_logger
 
 # Use centralized logger
 logger = setup_logger(__name__)
