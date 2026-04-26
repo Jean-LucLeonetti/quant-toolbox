@@ -55,6 +55,12 @@
           "enum": ["static_ols", "kalman_filter"],
           "default": "static_ols",
           "description": "Method for calculating the hedge ratio."
+        },
+        "coint_mode": {
+          "type": "string",
+          "enum": ["engle_granger", "johansen"],
+          "default": "engle_granger",
+          "description": "Cointegration test type."
         }
       },
       "additionalProperties": false

@@ -2,10 +2,11 @@ data:
   ticker: "FLY"
   start_date: "2015-01-01"
   end_date: "2026-04-26"
-  universe: "etf_pairs"
+  universe: "sp500_utilities"
 
 pairs:
   z_window: 60
   z_entry: 2.0
   z_exit: 0.5
-  hedge_mode: "kalman_filter"
+  hedge_mode: "static_ols"
+  coint_mode: "johansen"

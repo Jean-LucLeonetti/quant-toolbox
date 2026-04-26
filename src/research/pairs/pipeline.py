@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from statsmodels.tsa.stattools import coint
+from statsmodels.tsa.vector_ar.vecm import coint_johansen
 import statsmodels.api as sm
 from typing import List, Tuple, Dict
 from src.core.logger import setup_logger
@@ -69,12 +70,12 @@ class PairsExplorationPipeline:
         
         logger.info(f"Found {len(candidates)} candidate pairs.")
 
-        # 4. Step B: Cointegration Testing (Engle-Granger) & Half-Life
-        logger.info("Performing Engle-Granger tests and computing mean reversion half-lives...")
+        # 4. Step B: Cointegration Testing & Half-Life
+        logger.info(f"Performing {self.pairs_config.coint_mode} tests and computing mean reversion half-lives...")
         coint_results = []
         for (a, b), corr in candidates.items():
-            # Engle-Granger Cointegration Test
-            score, pvalue, _ = coint(prices[a], prices[b])
+            # Cointegration Test
+            score, pvalue, is_coint = self._perform_coint_test(prices[a], prices[b])
             
             # Step C: Compute Hedge Ratio and Spread
             # Regression: a = gamma * b + const
@@ -82,24 +83,18 @@ class PairsExplorationPipeline:
             x = sm.add_constant(prices[b])
             model = sm.OLS(y, x).fit()
             gamma = model.params[b]
-            spread = model.resid # a - gamma*b - const
+            spread = model.resid 
             
             # Step D: Compute Half-Life (Ornstein-Uhlenbeck fit)
-            # Regression: delta_S = alpha + beta * S_{t-1} + e
             delta_s = spread.diff().dropna()
             s_lag = spread.shift(1).dropna()
-            # Ensure indices match
             delta_s = delta_s.loc[s_lag.index]
             
             # Fit OU
             ou_model = sm.OLS(delta_s, sm.add_constant(s_lag)).fit()
-            beta = ou_model.params[0] # The coefficient on spread.shift(1)... wait, sm.add_constant adds const at index 0 normally?
-            # Actually, sm.add_constant adds it at the start. 
-            # delta_s = alpha (index 0) + beta (index 1) * s_lag
             beta = ou_model.params.iloc[1]
             
             # Half-life = -ln(2) / beta
-            # beta should be negative for mean reversion
             half_life = -np.log(2) / beta if beta < 0 else np.nan
             
             coint_results.append({
@@ -111,7 +106,7 @@ class PairsExplorationPipeline:
                 'Coint_P_Value': pvalue,
                 'Beta_OU': beta,
                 'Half_Life_Days': half_life,
-                'Is_Cointegrated': pvalue < 0.05
+                'Is_Cointegrated': is_coint
             })
             
         coint_df = pd.DataFrame(coint_results)
@@ -129,15 +124,15 @@ class PairsExplorationPipeline:
         prices_2 = prices.loc["2020-01-01":]
 
         for (a, b), corr in candidates.items():
-            _, p1, _ = coint(prices_1[a], prices_1[b])
-            _, p2, _ = coint(prices_2[a], prices_2[b])
+            _, p1, sig1 = self._perform_coint_test(prices_1[a], prices_1[b])
+            _, p2, sig2 = self._perform_coint_test(prices_2[a], prices_2[b])
             
             robust_results.append({
                 'Asset_1': a,
                 'Asset_2': b,
                 'P_Val_2015_2020': p1,
                 'P_Val_2020_2025': p2,
-                'Is_Robust': (p1 < 0.05) and (p2 < 0.05)
+                'Is_Robust': sig1 and sig2
             })
             
         robust_df = pd.DataFrame(robust_results)
@@ -346,6 +341,43 @@ class PairsExplorationPipeline:
             spreads.append(e) 
             
         return pd.Series(spreads, index=y.index), pd.Series(betas, index=y.index)
+
+    def _perform_coint_test(self, y: pd.Series, x: pd.Series) -> Tuple[float, float, bool]:
+        """
+        @brief Universal cointegration test wrapper based on config.
+        @return (statistic, p-value or proxy, is_significant)
+        """
+        if self.pairs_config.coint_mode == "johansen":
+            stat, sig = self._perform_johansen_test(y, x)
+            return stat, stat, sig # Return stat as proxy for p-value
+        else:
+            p_val, sig = self._perform_engle_granger(y, x)
+            return p_val, p_val, sig
+
+    def _perform_engle_granger(self, y: pd.Series, x: pd.Series) -> Tuple[float, bool]:
+        """
+        @brief Wrapper for Engle-Granger cointegration test.
+        """
+        _, p_val, _ = coint(y, x)
+        return p_val, p_val < 0.05
+
+    def _perform_johansen_test(self, y: pd.Series, x: pd.Series) -> Tuple[float, bool]:
+        """
+        @brief Performs Johansen cointegration test.
+        @return (Trace Statistic, Is Significant at 5%)
+        """
+        # Johansen expects endog matrix
+        df = pd.concat([y, x], axis=1).dropna()
+        # det_order=0 (constant), k_ar_diff=1 (1 lag)
+        result = coint_johansen(df, 0, 1)
+        
+        # We check the trace statistics for r=0 (null: no cointegration)
+        trace_stat = result.lr1[0]
+        crit_val_5pct = result.cvt[0, 1] # Index 1 is 95% confidence level (5% significance)
+        
+        # To keep it compatible with p-value reporting, we return the trace stat
+        # but mark significance based on the critical value.
+        return trace_stat, trace_stat > crit_val_5pct
 
     def _plot_spread_series(self, prices: pd.DataFrame, pairs_df: pd.DataFrame):
         """

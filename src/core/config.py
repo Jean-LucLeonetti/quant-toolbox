@@ -18,6 +18,7 @@ class PairsConfig:
     z_entry: float = 2.0
     z_exit: float = 0.5
     hedge_mode: str = "static_ols"
+    coint_mode: str = "engle_granger"
 
 @dataclass
 class Config:
