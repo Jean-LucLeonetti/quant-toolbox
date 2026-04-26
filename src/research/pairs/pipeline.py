@@ -30,8 +30,8 @@ class PairsExplorationPipeline:
         """
         @brief Main entry point for the pairs exploration.
         """
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.run_dir = f"output/runs/pairs_{self.universe_name}_{timestamp}"
+        self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.run_dir = f"output/runs/pairs_{self.universe_name}_{self.timestamp}"
         os.makedirs(self.run_dir, exist_ok=True)
         
         # Save a copy of the configuration
@@ -190,6 +190,9 @@ class PairsExplorationPipeline:
 
         # 11. Generate Enhanced Markdown Ranking Report
         self._generate_ranking_report(coint_df)
+
+        # 12. Log cross-experiment summary
+        self._log_experiment(coint_df, portfolio_returns)
 
         return True
 
@@ -407,6 +410,45 @@ class PairsExplorationPipeline:
         fig.savefig(os.path.join(report_dir, f"{self.universe_name}_portfolio_equity.png"))
         plt.close(fig)
         logger.info(f"Portfolio equity curve saved to {report_dir}")
+
+    def _log_experiment(self, coint_df: pd.DataFrame, portfolio_returns: pd.Series):
+        """
+        @brief Appends headline run metrics to a centralized experiments log.
+        """
+        log_path = "output/runs/experiments_log.csv"
+        
+        # Calculate summary metrics
+        total_pairs = len(coint_df)
+        robust_pairs = coint_df['Is_Robust'].sum() if 'Is_Robust' in coint_df.columns else 0
+        mean_half_life = coint_df['Half_Life_Days'].mean() if 'Half_Life_Days' in coint_df.columns else np.nan
+        
+        best_sharpe = coint_df['Sharpe'].max() if 'Sharpe' in coint_df.columns else np.nan
+        
+        port_ann_ret = portfolio_returns.mean() * 252
+        port_ann_vol = portfolio_returns.std() * np.sqrt(252)
+        port_sharpe = port_ann_ret / port_ann_vol if port_ann_vol > 0 else 0
+        
+        log_entry = {
+            'Timestamp': self.timestamp,
+            'Universe': self.universe_name,
+            'Coint_Mode': self.pairs_config.coint_mode,
+            'Hedge_Mode': self.pairs_config.hedge_mode,
+            'Total_Pairs_Tested': total_pairs,
+            'Robust_Pairs': robust_pairs,
+            'Mean_Half_Life': mean_half_life,
+            'Best_Indiv_Sharpe': best_sharpe,
+            'Portfolio_Sharpe': port_sharpe,
+            'Portfolio_Ann_Return': port_ann_ret
+        }
+        
+        # Append to CSV
+        log_df = pd.DataFrame([log_entry])
+        if os.path.exists(log_path):
+            log_df.to_csv(log_path, mode='a', header=False, index=False)
+        else:
+            log_df.to_csv(log_path, mode='w', header=True, index=False)
+            
+        logger.info(f"Headline metrics logged to {log_path}")
 
     def _perform_coint_test(self, y: pd.Series, x: pd.Series) -> Tuple[float, float, bool]:
         """
