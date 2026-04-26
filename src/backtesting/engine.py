@@ -41,21 +41,53 @@ class BacktestEngine:
         sharpe = ann_ret / ann_vol if ann_vol > 0 else 0
         
         # Drawdown
-        cum_ret = pnl.cumsum() # Use unscaled pnl for individual drawdown
-        equity = np.exp(cum_ret)
+        equity = np.exp(pnl.cumsum())
         running_max = equity.cummax()
         drawdown = (equity / running_max) - 1
         max_dd = drawdown.min()
+        # Identify discrete trades: entry (pos flips from 0 to non-zero) to exit (pos flips to 0)
+        is_active = positions != 0
+        starts = (is_active) & (positions.shift(1).fillna(0) == 0)
+        ends = (is_active) & (positions.shift(-1).fillna(0) == 0)
         
-        # Trades
-        entries = ((positions != 0) & (positions.shift(1) == 0)).sum()
+        trade_returns = []
+        hold_times = []
+        
+        start_indices = positions.index[starts]
+        end_indices = positions.index[ends]
+        
+        # Match starts and ends to compute returns
+        # This handles the case where a trade starts but doesn't end (open at end of sample)
+        for s_idx in start_indices:
+            # Find the first end index after or at this start
+            future_ends = end_indices[end_indices >= s_idx]
+            if not future_ends.empty:
+                e_idx = future_ends[0]
+                # Trade return = Cumulative daily returns across the window
+                # We use the daily_pnl (unscaled) for the trade return
+                window_pnl = pnl.loc[s_idx:e_idx]
+                total_trade_ret = np.exp(window_pnl.sum()) - 1
+                trade_returns.append(total_trade_ret)
+                
+                # Hold time (trading days)
+                hold_times.append(len(window_pnl))
+
+        trade_returns = np.array(trade_returns)
+        avg_trade_ret = np.mean(trade_returns) if len(trade_returns) > 0 else 0
+        trade_sharpe = (np.mean(trade_returns) / np.std(trade_returns)) if len(trade_returns) > 1 and np.std(trade_returns) > 0 else 0
+        avg_hold_time = np.mean(hold_times) if len(hold_times) > 0 else 0
         
         return {
             'ann_return': ann_ret,
             'ann_vol': ann_vol,
             'sharpe': sharpe,
             'max_drawdown': max_dd,
-            'num_trades': entries,
+            'num_trades': len(trade_returns),
+            'trade_sharpe': trade_sharpe,
+            'avg_trade_ret': avg_trade_ret,
+            'avg_hold_time': avg_hold_time,
+            'trade_returns': trade_returns.tolist(),
+            'hold_times': hold_times,
             'daily_pnl': scaled_pnl,
             'equity_curve': equity
         }

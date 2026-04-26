@@ -194,13 +194,14 @@ class PairsExplorationPipeline:
 
         # 12. Walk-Forward Out-of-Sample Validation
         logger.info("Running walk-forward validation...")
-        wf_sharpe, oos_days, wf_trades, avg_train_sharpe = self._walk_forward_backtest(prices, returns)
+        wf_sharpe, oos_days, wf_trades, avg_train_sharpe, oos_extra = self._walk_forward_backtest(prices, returns)
 
         # 13. Log cross-experiment summary
-        # Pass avg wf trades and avg train sharpe as metadata for comparison
         self._log_experiment(coint_df, portfolio_returns, wf_sharpe, oos_days, {
             'wf_trades': wf_trades,
-            'avg_train_sharpe': avg_train_sharpe
+            'avg_train_sharpe': avg_train_sharpe,
+            'oos_trade_sharpe': oos_extra.get('trade_sharpe', 0),
+            'oos_avg_hold': oos_extra.get('avg_hold', 0)
         })
 
         return True
@@ -267,7 +268,9 @@ class PairsExplorationPipeline:
                 'Ann_Return': perf['ann_return'],
                 'Sharpe': perf['sharpe'],
                 'Num_Trades': perf['num_trades'],
-                'Win_Rate': win_rate
+                'Win_Rate': win_rate,
+                'Trade_Sharpe': perf['trade_sharpe'],
+                'Avg_Hold_Time': perf['avg_hold_time']
             })
             
             # Store daily returns for portfolio aggregation
@@ -458,6 +461,10 @@ class PairsExplorationPipeline:
             'OOS_Days': oos_days,
             'Avg_Trades_IS': round(coint_df['Num_Trades'].mean(), 1) if 'Num_Trades' in coint_df.columns else 0,
             'Avg_Trades_OOS': round(is_metrics.get('wf_trades', 0), 1),
+            'Trade_Sharpe_IS': round(coint_df['Trade_Sharpe'].mean(), 3) if 'Trade_Sharpe' in coint_df.columns else 0,
+            'Trade_Sharpe_OOS': round(is_metrics.get('oos_trade_sharpe', 0), 3),
+            'Avg_Hold_Days_IS': round(coint_df['Avg_Hold_Time'].mean(), 1) if 'Avg_Hold_Time' in coint_df.columns else 0,
+            'Avg_Hold_Days_OOS': round(is_metrics.get('oos_avg_hold', 0), 1),
             'Portfolio_Ann_Return': port_ann_ret
         }
         
@@ -470,7 +477,7 @@ class PairsExplorationPipeline:
             
         logger.info(f"Headline metrics logged to {log_path}")
 
-    def _walk_forward_backtest(self, prices: pd.DataFrame, returns: pd.DataFrame) -> Tuple[float, int, int, float]:
+    def _walk_forward_backtest(self, prices: pd.DataFrame, returns: pd.DataFrame) -> Tuple[float, int, int, float, Dict]:
         """
         @brief Runs a rolling walk-forward validation.
 
@@ -500,6 +507,8 @@ class PairsExplorationPipeline:
         start_idx = 0
         total_pnl_trades = []
         train_sharpes = []
+        all_oos_trade_rets = []
+        all_oos_hold_times = []
         
         while start_idx + train_days + test_days <= len(all_dates):
             train_end_idx = start_idx + train_days
@@ -608,6 +617,16 @@ class PairsExplorationPipeline:
                             fold_pnl += perf['daily_pnl']
                             active += 1
                             fold_trade_counts.append(perf['num_trades'])
+                            all_oos_trade_rets.extend(perf.get('trade_returns', []))
+                            all_oos_hold_times.extend(perf.get('hold_times', []))
+                            
+                            # Collect individual trade details for global stats
+                            # We can't really get full trade returns here without re-parsing, 
+                            # so we'll approximate with num_trades for now or implement better tracking.
+                            # Actually, compute_performance already has trade_returns. 
+                            # Let's assume we implement a way to get them.
+                            # (Wait, I just added them to the return dict in engine.py)
+                            # But I need to modify engine.py to RETURN the list of returns if I want to aggregate.
                         except Exception:
                             continue
                     
@@ -635,8 +654,13 @@ class PairsExplorationPipeline:
         avg_wf_trades = np.mean(total_pnl_trades) if total_pnl_trades else 0
         avg_train_sharpe = np.mean(train_sharpes) if train_sharpes else 0.0
         
+        # Global OOS Trade Stats
+        all_oos_trade_rets = np.array(all_oos_trade_rets)
+        oos_trade_sharpe = (np.mean(all_oos_trade_rets) / np.std(all_oos_trade_rets)) if len(all_oos_trade_rets) > 1 and np.std(all_oos_trade_rets) > 0 else 0
+        oos_avg_hold = np.mean(all_oos_hold_times) if all_oos_hold_times else 0
+        
         logger.info(f"Walk-Forward OOS Sharpe: {wf_sharpe:.3f} ({fold} folds, {len(oos_returns)} total days)")
-        return wf_sharpe, len(oos_returns), avg_wf_trades, avg_train_sharpe
+        return wf_sharpe, len(oos_returns), avg_wf_trades, avg_train_sharpe, {'trade_sharpe': oos_trade_sharpe, 'avg_hold': oos_avg_hold}
 
     def _perform_coint_test(self, y: pd.Series, x: pd.Series) -> Tuple[float, float, bool]:
         """

@@ -5,10 +5,10 @@ data:
     start: '2020-02-20'
   start_date: '2015-01-01'
   ticker: FLY
-  universe: etf_sector
+  universe: sp500
 pairs:
-  coint_mode: engle_granger
-  hedge_mode: static_ols
+  coint_mode: johansen
+  hedge_mode: kalman_filter
   portfolio_size: 30
   regime_filter: true
   wf_test_months: 6
