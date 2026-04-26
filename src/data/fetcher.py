@@ -2,21 +2,23 @@ import yfinance as yf
 import pandas as pd
 from typing import Optional
 from src.core.logger import setup_logger
+from src.data.store import DataStore
 
 # Use centralized logger
 logger = setup_logger(__name__)
 
 class DataFetcher:
     """
-    @brief A class to fetch historical financial data using yfinance.
+    @brief A class to fetch historical financial data using yfinance with local caching.
     """
 
     def __init__(self):
-        pass
+        self.store = DataStore()
 
     def fetch_data(self, ticker: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
         """
         @brief Fetches historical data for a given ticker from start_date to end_date.
+        Checks local cache first, then falls back to yfinance.
 
         @param ticker The ticker symbol to fetch (e.g., 'AAPL').
         @param start_date The start date in 'YYYY-MM-DD' format.
@@ -24,15 +26,25 @@ class DataFetcher:
 
         @return A pandas DataFrame containing historical data, or None if an error occurs.
         """
-        logger.info(f"Fetching data for {ticker} from {start_date} to {end_date}...")
+        # 1. Try to load from cache
+        cached_data = self.store.load(ticker, start_date, end_date)
+        if cached_data is not None:
+            return cached_data
+
+        # 2. Fall back to API
+        logger.info(f"Cache miss. Fetching data for {ticker} from {start_date} to {end_date}...")
         
         try:
-            # Download data using yfinance
-            data = yf.download(ticker, start=start_date, end=end_date)
+            # Download data using yfinance with auto_adjust=True to ensure
+            # split and dividend adjusted prices are in the 'Close' column.
+            data = yf.download(ticker, start=start_date, end=end_date, auto_adjust=True)
             
             if data.empty:
                 logger.warning(f"No data found for ticker {ticker} in the specified range.")
                 return None
+            
+            # 3. Save to cache for future use
+            self.store.save(data, ticker, start_date, end_date)
             
             logger.info(f"Successfully fetched {len(data)} rows for {ticker}.")
             return data
@@ -40,4 +52,3 @@ class DataFetcher:
         except Exception as e:
             logger.error(f"Failed to fetch data for {ticker}: {e}")
             return None
-
