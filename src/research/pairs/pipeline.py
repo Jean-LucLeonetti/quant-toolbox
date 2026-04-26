@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from statsmodels.tsa.stattools import coint
+import statsmodels.api as sm
 from typing import List, Tuple, Dict
 from src.core.logger import setup_logger
 from src.data.loader import load_universe_prices
@@ -66,18 +67,48 @@ class PairsExplorationPipeline:
         
         logger.info(f"Found {len(candidates)} candidate pairs.")
 
-        # 4. Step B: Cointegration Testing (Engle-Granger)
-        logger.info("Performing Engle-Granger cointegration tests...")
+        # 4. Step B: Cointegration Testing (Engle-Granger) & Half-Life
+        logger.info("Performing Engle-Granger tests and computing mean reversion half-lives...")
         coint_results = []
         for (a, b), corr in candidates.items():
-            # coint returns (t-stat, p-value, critical_values)
+            # Engle-Granger Cointegration Test
             score, pvalue, _ = coint(prices[a], prices[b])
+            
+            # Step C: Compute Hedge Ratio and Spread
+            # Regression: a = gamma * b + const
+            y = prices[a]
+            x = sm.add_constant(prices[b])
+            model = sm.OLS(y, x).fit()
+            gamma = model.params[b]
+            spread = model.resid # a - gamma*b - const
+            
+            # Step D: Compute Half-Life (Ornstein-Uhlenbeck fit)
+            # Regression: delta_S = alpha + beta * S_{t-1} + e
+            delta_s = spread.diff().dropna()
+            s_lag = spread.shift(1).dropna()
+            # Ensure indices match
+            delta_s = delta_s.loc[s_lag.index]
+            
+            # Fit OU
+            ou_model = sm.OLS(delta_s, sm.add_constant(s_lag)).fit()
+            beta = ou_model.params[0] # The coefficient on spread.shift(1)... wait, sm.add_constant adds const at index 0 normally?
+            # Actually, sm.add_constant adds it at the start. 
+            # delta_s = alpha (index 0) + beta (index 1) * s_lag
+            beta = ou_model.params.iloc[1]
+            
+            # Half-life = -ln(2) / beta
+            # beta should be negative for mean reversion
+            half_life = -np.log(2) / beta if beta < 0 else np.nan
+            
             coint_results.append({
                 'Asset_1': a,
                 'Asset_2': b,
                 'Correlation': corr,
+                'Hedge_Ratio': gamma,
                 'Coint_T_Stat': score,
                 'Coint_P_Value': pvalue,
+                'Beta_OU': beta,
+                'Half_Life_Days': half_life,
                 'Is_Cointegrated': pvalue < 0.05
             })
             
@@ -86,13 +117,14 @@ class PairsExplorationPipeline:
         os.makedirs(report_dir, exist_ok=True)
         coint_path = os.path.join(report_dir, f"{self.universe_name}_cointegration_results.csv")
         coint_df.to_csv(coint_path, index=False)
-        logger.info(f"Cointegration results saved to {coint_path}")
+        logger.info(f"Enhanced cointegration results saved to {coint_path}")
 
-        # 5. Step C: Eyeball top 5 (by Cointegration p-value)
+        # 5. Step E: Eyeball top 5 (by Cointegration p-value)
         top_5_coint = coint_df.sort_values('Coint_P_Value').head(5)
-        logger.info("Top 5 cointegrated pairs:")
+        logger.info("Top 5 cointegrated pairs (Mean Reversion Statistics):")
         for _, row in top_5_coint.iterrows():
-            logger.info(f"  {row['Asset_1']} - {row['Asset_2']}: p={row['Coint_P_Value']:.4f} (corr={row['Correlation']:.4f})")
+            hl_str = f"{row['Half_Life_Days']:.1f} days" if not np.isnan(row['Half_Life_Days']) else "∞"
+            logger.info(f"  {row['Asset_1']} - {row['Asset_2']}: p={row['Coint_P_Value']:.4f} | half-life={hl_str} | hedge={row['Hedge_Ratio']:.4f}")
 
         self._plot_normalized_pairs(prices, list(zip(top_5_coint['Asset_1'], top_5_coint['Asset_2'])))
 
