@@ -8,6 +8,7 @@ A professional-grade modular Python framework for financial research, algorithmi
 - **Advanced Cointegration**: Supports **Engle-Granger** and direction-agnostic **Johansen** tests.
 - **Dynamic Hedging**: Choose between **Static OLS** or adaptive **Kalman Filter** hedge ratios.
 - **Regime Awareness**: Built-in logic for **COVID-period exclusions** and **Volatility-based regime filters**.
+- **Portfolio Aggregation**: Execute massive $1/N$ multi-pair backtests to visualize diversification benefits and aggregate Sharpe.
 - **Execution Backtest**: High-fidelity signal generation with $|Z|>2$ entry and convergence targets.
 
 ## Quick Start

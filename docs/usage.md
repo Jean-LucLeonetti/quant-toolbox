@@ -58,11 +58,15 @@ Results are organized in `output/pairs/` and `output/reports/`:
 - **`normalized/`**: "Eyeball test" plots of price co-movement.
 - **`spreads/`**: Time-series plots of the OLS residuals.
 - **`z_scores/`**: Signal verification plots (Z-score + Target Position).
-- **`backtests/`**: Cumulative P&L curves with Sharpe ratio annotations.
+- **`backtests/`**: Cumulative P&L curves for individual pairs and the **Aggregated Portfolio**.
 
 ## 5. Advanced Research Configuration
 
 The behavior of the `pairs` pipeline can be heavily tuned in `input/configuration.yaml`.
+
+### Portfolio Aggregation (`portfolio_size`)
+- Set `portfolio_size` (e.g., `30`) to test an equally-weighted portfolio of the top $N$ cointegrated pairs.
+- By leveraging the Law of Large Numbers, trading a basket of loosely cointegrated pairs often achieves lower drawdowns and a higher aggregate Sharpe Ratio than trading a single "perfect" pair.
 
 ### Hedge Ratio Modes (`hedge_mode`)
 - **`static_ols`**: Best for stationary assets (Utilities). Uses a fixed ratio for the whole period.

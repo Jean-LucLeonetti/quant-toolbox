@@ -78,6 +78,11 @@
           "type": "boolean",
           "default": false,
           "description": "If true, sit out during high volatility regimes."
+        },
+        "portfolio_size": {
+          "type": "integer",
+          "default": 10,
+          "description": "Number of pairs to include in the aggregated portfolio backtest."
         }
       },
       "additionalProperties": false

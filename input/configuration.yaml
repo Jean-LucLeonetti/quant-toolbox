@@ -14,3 +14,4 @@ pairs:
   hedge_mode: "static_ols"
   coint_mode: "engle_granger"
   regime_filter: true
+  portfolio_size: 30

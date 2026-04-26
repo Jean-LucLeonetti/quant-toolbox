@@ -21,6 +21,7 @@ class PairsConfig:
     hedge_mode: str = "static_ols"
     coint_mode: str = "engle_granger"
     regime_filter: bool = False
+    portfolio_size: int = 10
 
 @dataclass
 class Config:

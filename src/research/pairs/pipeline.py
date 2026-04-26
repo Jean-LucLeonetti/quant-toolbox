@@ -158,30 +158,36 @@ class PairsExplorationPipeline:
         self._plot_spread_series(prices, top_5_coint)
 
         # 8. Backtest Top Pairs and Store Metrics
-        logger.info(f"Performing naive backtests for top 5 pairs...")
-        backtest_results = self._backtest_naive(prices, returns, top_5_coint)
+        n = self.pairs_config.portfolio_size
+        top_n = coint_df.sort_values('Coint_P_Value').head(n)
+        logger.info(f"Performing naive backtests for top {n} pairs...")
+        backtest_results, portfolio_returns = self._backtest_naive(prices, returns, top_n)
         
         # Merge backtest metrics into coint_df
         coint_df = coint_df.merge(backtest_results, on=['Asset_1', 'Asset_2'], how='left')
 
-        # 9. Plot Normalized Prices & Z-Scores
-        self._plot_normalized_pairs(prices, list(zip(top_5_coint['Asset_1'], top_5_coint['Asset_2'])))
-        self._plot_z_scores(prices, top_5_coint, window=self.pairs_config.z_window)
+        # 9. Plot Portfolio Curve
+        self._plot_portfolio_curve(portfolio_returns)
 
-        # 10. Generate Enhanced Markdown Ranking Report
+        # 10. Plot Normalized Prices & Z-Scores for top 5 (to avoid clutter)
+        top_5 = top_n.head(5)
+        self._plot_normalized_pairs(prices, list(zip(top_5['Asset_1'], top_5['Asset_2'])))
+        self._plot_z_scores(prices, top_5, window=self.pairs_config.z_window)
+
+        # 11. Generate Enhanced Markdown Ranking Report
         self._generate_ranking_report(coint_df)
 
         return True
 
-    def _backtest_naive(self, prices: pd.DataFrame, returns: pd.DataFrame, pairs_df: pd.DataFrame) -> pd.DataFrame:
+    def _backtest_naive(self, prices: pd.DataFrame, returns: pd.DataFrame, pairs_df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series]:
         """
         @brief Performs a naive backtest (no costs) and plots equity curves.
-        @return DataFrame containing backtest performance metrics.
+        @return (metrics_df, aggregated_daily_returns)
         """
+        metrics = []
+        all_daily_returns = pd.DataFrame(index=returns.index)
         output_dir = "output/pairs/backtests"
         os.makedirs(output_dir, exist_ok=True)
-        
-        metrics = []
         
         for _, row in pairs_df.iterrows():
             a, b = row['Asset_1'], row['Asset_2']
@@ -236,10 +242,12 @@ class PairsExplorationPipeline:
             metrics.append({
                 'Asset_1': a,
                 'Asset_2': b,
-                'Total_Return': total_return,
                 'Ann_Return': ann_ret,
                 'Sharpe': sharpe
             })
+            
+            # Store daily returns for portfolio aggregation (scaled by 1/N)
+            all_daily_returns[f"{a}_{b}"] = pair_return / len(pairs_df)
             
             # Plot
             fig, ax = plt.subplots(figsize=(12, 6))
@@ -253,8 +261,8 @@ class PairsExplorationPipeline:
             save_path = os.path.join(output_dir, f"{a}_{b}_equity.png")
             fig.savefig(save_path)
             plt.close(fig)
-            
-        return pd.DataFrame(metrics)
+        portfolio_returns = all_daily_returns.sum(axis=1)
+        return pd.DataFrame(metrics), portfolio_returns
 
     def _plot_z_scores(self, prices: pd.DataFrame, pairs_df: pd.DataFrame, window: int = 60):
         """
@@ -355,7 +363,36 @@ class PairsExplorationPipeline:
             betas.append(theta[0])
             spreads.append(e) 
             
+            spreads.append(e) 
+            
         return pd.Series(spreads, index=y.index), pd.Series(betas, index=y.index)
+
+    def _plot_portfolio_curve(self, portfolio_returns: pd.Series):
+        """
+        @brief Plots the aggregated equity curve of the total portfolio.
+        """
+        cum_ret = (1 + portfolio_returns).cumprod()
+        
+        # Performance metrics
+        ann_ret = portfolio_returns.mean() * 252
+        ann_vol = portfolio_returns.std() * np.sqrt(252)
+        sharpe = ann_ret / ann_vol if ann_vol > 0 else 0
+        
+        fig, ax = plt.subplots(figsize=(12, 6))
+        ax.plot(cum_ret.index, cum_ret, color='navy', linewidth=2, label=f'Portfolio (N={self.pairs_config.portfolio_size})')
+        ax.axhline(1, color='black', alpha=0.3)
+        ax.fill_between(cum_ret.index, 1, cum_ret, color='navy', alpha=0.1)
+        
+        ax.set_title(f"Aggregated Portfolio Equity Curve ({self.universe_name})\nAnn. Return: {ann_ret*100:.1f}% | Sharpe: {sharpe:.2f}")
+        ax.set_ylabel("Growth of $1")
+        ax.grid(True, alpha=0.3)
+        ax.legend()
+        
+        report_dir = "output/pairs/backtests"
+        os.makedirs(report_dir, exist_ok=True)
+        fig.savefig(os.path.join(report_dir, f"{self.universe_name}_portfolio_equity.png"))
+        plt.close(fig)
+        logger.info(f"Portfolio equity curve saved to {report_dir}")
 
     def _perform_coint_test(self, y: pd.Series, x: pd.Series) -> Tuple[float, float, bool]:
         """
