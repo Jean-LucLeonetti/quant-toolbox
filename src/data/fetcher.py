@@ -69,3 +69,13 @@ class DataFetcher:
         except Exception as e:
             logger.error(f"Failed to fetch prices for {ticker}: {e}")
             return None
+    def get_ticker_info(self, ticker: str) -> dict:
+        """
+        @brief Fetches descriptive metadata for a ticker using yfinance.
+        """
+        try:
+            t = yf.Ticker(ticker)
+            return t.info
+        except Exception as e:
+            logger.error(f"Failed to fetch info for {ticker}: {e}")
+            return {}
