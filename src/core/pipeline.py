@@ -39,7 +39,10 @@ class QuantPipeline:
                 config.data.end_date
             )
         elif mode == "pairs":
-            pipeline = PairsExplorationPipeline(universe_name=config.data.universe)
+            pipeline = PairsExplorationPipeline(
+                universe_name=config.data.universe,
+                pairs_config=config.pairs
+            )
             success = pipeline.run(
                 start=config.data.start_date, 
                 end=config.data.end_date

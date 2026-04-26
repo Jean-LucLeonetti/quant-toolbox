@@ -8,6 +8,7 @@ from typing import List, Tuple, Dict
 from src.core.logger import setup_logger
 from src.data.loader import load_universe_prices
 from src.data.store import DataStore
+from src.core.config import PairsConfig
 
 logger = setup_logger(__name__)
 
@@ -15,8 +16,9 @@ class PairsExplorationPipeline:
     """
     @brief Pipeline to explore and validate pair trading candidates.
     """
-    def __init__(self, universe_name: str = "sp500_utilities"):
+    def __init__(self, universe_name: str = "sp500_utilities", pairs_config: PairsConfig = None):
         self.universe_name = universe_name
+        self.pairs_config = pairs_config or PairsConfig()
         self.store = DataStore()
 
     def run(self, start: str = None, end: str = None):
@@ -162,7 +164,7 @@ class PairsExplorationPipeline:
 
         # 9. Plot Normalized Prices & Z-Scores
         self._plot_normalized_pairs(prices, list(zip(top_5_coint['Asset_1'], top_5_coint['Asset_2'])))
-        self._plot_z_scores(prices, top_5_coint)
+        self._plot_z_scores(prices, top_5_coint, window=self.pairs_config.z_window)
 
         # 10. Generate Enhanced Markdown Ranking Report
         self._generate_ranking_report(coint_df)
@@ -183,20 +185,21 @@ class PairsExplorationPipeline:
             a, b = row['Asset_1'], row['Asset_2']
             gamma = row['Hedge_Ratio']
             
-            # 1. Z-Score Signal Generation (reuse logic for consistency)
+            # 1. Z-Score Signal Generation
             y = prices[a]
             x = sm.add_constant(prices[b])
             spread = sm.OLS(y, x).fit().resid
             
-            mu = spread.rolling(window=60).mean()
-            sigma = spread.rolling(window=60).std()
+            w = self.pairs_config.z_window
+            mu = spread.rolling(window=w).mean()
+            sigma = spread.rolling(window=w).std()
             z = (spread - mu) / sigma
             
             # Position Rules
             pos = pd.Series(index=z.index, data=np.nan)
-            pos[z < -2] = 1
-            pos[z > 2] = -1
-            pos[z.abs() < 0.5] = 0
+            pos[z < -self.pairs_config.z_entry] = 1
+            pos[z > self.pairs_config.z_entry] = -1
+            pos[z.abs() < self.pairs_config.z_exit] = 0
             pos = pos.ffill().fillna(0)
             
             # 2. Daily P&L Calculation
@@ -262,9 +265,9 @@ class PairsExplorationPipeline:
             
             # 2. Position Rules
             pos = pd.Series(index=z.index, data=np.nan)
-            pos[z < -2] = 1   # Long spread
-            pos[z > 2] = -1   # Short spread
-            pos[z.abs() < 0.5] = 0  # Exit
+            pos[z < -self.pairs_config.z_entry] = 1   # Long spread
+            pos[z > self.pairs_config.z_entry] = -1   # Short spread
+            pos[z.abs() < self.pairs_config.z_exit] = 0  # Exit
             pos = pos.ffill().fillna(0)
             
             fig, ax1 = plt.subplots(figsize=(12, 6))
@@ -272,10 +275,10 @@ class PairsExplorationPipeline:
             # Plot Z-Score
             ax1.plot(z.index, z, color='teal', alpha=0.6, label='Z-Score')
             ax1.axhline(0, color='black', linestyle='-', alpha=0.3)
-            ax1.axhline(2, color='red', linestyle='--', alpha=0.5)
-            ax1.axhline(-2, color='red', linestyle='--', alpha=0.5)
-            ax1.axhline(0.5, color='orange', linestyle=':', alpha=0.3)
-            ax1.axhline(-0.5, color='orange', linestyle=':', alpha=0.3)
+            ax1.axhline(self.pairs_config.z_entry, color='red', linestyle='--', alpha=0.5)
+            ax1.axhline(-self.pairs_config.z_entry, color='red', linestyle='--', alpha=0.5)
+            ax1.axhline(self.pairs_config.z_exit, color='orange', linestyle=':', alpha=0.3)
+            ax1.axhline(-self.pairs_config.z_exit, color='orange', linestyle=':', alpha=0.3)
             
             ax1.set_ylabel("Z-Score", color='teal')
             ax1.tick_params(axis='y', labelcolor='teal')

@@ -1,5 +1,11 @@
+# yaml-language-server: $schema=../schema/config_schema.json
 data:
   ticker: "FLY"
   start_date: "2015-01-01"
   end_date: "2026-04-26"
-  universe: "etf_pairs"
+  universe: "sp500_utilities"
+
+pairs:
+  z_window: 60
+  z_entry: 2.0
+  z_exit: 0.5

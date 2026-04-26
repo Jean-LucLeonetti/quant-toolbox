@@ -1,0 +1,59 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Quant Toolbox Configuration Schema",
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "ticker": {
+          "type": "string",
+          "description": "Primary ticker for stock analysis mode."
+        },
+        "start_date": {
+          "type": "string",
+          "format": "date",
+          "description": "Start date for data fetching (YYYY-MM-DD)."
+        },
+        "end_date": {
+          "type": "string",
+          "format": "date",
+          "description": "End date for data fetching (YYYY-MM-DD)."
+        },
+        "universe": {
+          "type": "string",
+          "enum": ["sp500", "sp500_utilities", "sp500_utilities_staples", "etf_pairs"],
+          "description": "Universe name for multi-asset builds and pairs research."
+        }
+      },
+      "required": ["start_date", "end_date"],
+      "additionalProperties": false
+    },
+    "pairs": {
+      "type": "object",
+      "properties": {
+        "z_window": {
+          "type": "integer",
+          "minimum": 10,
+          "default": 60,
+          "description": "Rolling window for Z-score calculation (days)."
+        },
+        "z_entry": {
+          "type": "number",
+          "minimum": 0.5,
+          "default": 2.0,
+          "description": "Z-score threshold for opening a position."
+        },
+        "z_exit": {
+          "type": "number",
+          "minimum": 0.0,
+          "default": 0.5,
+          "description": "Z-score threshold for closing a position."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": ["data"],
+  "additionalProperties": false
+}
