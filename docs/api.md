@@ -1,21 +1,34 @@
 # API Reference
 
-Brief overview of the core classes in the Quant Toolbox.
+Core components of the Quant research framework.
 
-## `src.core.pipeline.QuantPipeline`
-The main orchestrator for the application.
-- `__init__(config_path: str)`: Initialize with the path to the YAML config.
-- `run(mode: str)`: Execute a specific analysis mode (`stock_analysis`, etc.).
+## Orchestration
 
-## `src.data.fetcher.DataFetcher`
-Wrapper for market data acquisition.
-- `fetch_data(ticker, start_date, end_date)`: Returns a `pd.DataFrame` containing historical prices.
+### `src.core.pipeline.QuantPipeline`
+Central task dispatcher.
+- `run(mode: str)`: Dispatches to `stock_analysis` or `universe_build`.
 
-## `src.stock_analysis.plotter.StockPlotter`
-Visualization engine.
-- `plot_price(data, ticker)`: Generates and saves a historical price chart.
+## Research Modules
 
-## `src.core.config.Config`
-Configuration parser.
-- `load(path)`: Loads configuration from a specific YAML file.
-- `from_dict(data)`: Creates a config object from a dictionary.
+### `src.research.universe_build.pipeline.UniversePipeline`
+Manages the construction of instrument universes.
+- `refresh(universes: list)`: Scrapes constituents and updates the metadata DB.
+
+### `src.research.stock_analysis.pipeline`
+- `run_stock_analysis(config_path)`: Orchestrates the single-ticker research flow.
+
+## Data & Storage
+
+### `src.data.store.DataStore`
+The persistence layer.
+- `load/save(...)`: Manages Parquet price caching.
+- `upsert_tickers(df)`: Updates the SQLite metadata table.
+- `update_universe_membership(tickers, universe)`: Tracks point-in-time membership.
+- `query_universe(universe)`: Retrieves active members of a specific universe.
+
+### `src.data.universe`
+- `get_sp500_constituents()`: Wikipedia scraper for S&P 500.
+- `fetch_ticker_metadata(tickers)`: Batch metadata retrieval from `yfinance`.
+
+### `src.data.fetcher.DataFetcher`
+- `fetch_data(ticker, start, end)`: Returns split-adjusted market data (`auto_adjust=True`).

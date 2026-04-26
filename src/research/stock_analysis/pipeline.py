@@ -1,7 +1,7 @@
 import sys
 from src.core.config import Config
 from src.data.fetcher import DataFetcher
-from src.stock_analysis.plotter import StockPlotter
+from src.research.stock_analysis.plotter import StockPlotter
 from src.core.logger import setup_logger
 
 logger = setup_logger(__name__)

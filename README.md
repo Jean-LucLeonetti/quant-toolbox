@@ -1,29 +1,33 @@
 # Quant Toolbox
 
-A modular Python framework for financial research and algorithmic trading analysis.
+A professional-grade modular Python framework for financial research, algorithmic trading, and pairs analysis.
 
-## Features
-- **Data Ingestion**: Integrated with Yahoo Finance for seamless market data retrieval.
-- **Single Stock Analysis**: automated historical price analysis and visualization.
-- **Modular Architecture**: Built to be extended with custom analysis modules.
+## Key Features
+- **Sophisticated Data Pipeline**: Automatic split/dividend adjustments and Parquet-based local caching.
+- **Universe Management**: SQLite-backed metadata store with point-in-time membership tracking (prevents survivorship bias).
+- **Research-Centric Design**: Modular `src/research` structure for developing independent trading strategies.
 - **Optimized Environment**: Fully compatible and tested with Python 3.14.3.
 
 ## Quick Start
 
 ```bash
-# 1. Activate the environment
+# 1. Activate environment
 source .venv/bin/activate
 
-# 2. Configure your analysis
-# Edit input/configuration.yaml
+# 2. Build your research database (S&P 500 metadata)
+python main.py universe_build
 
-# 3. Run the pipeline
-python main.py
+# 3. Run a stock analysis
+python main.py stock_analysis
 ```
 
-## Documentation
+## Project Structure
+- `docs/`: Detailed guides and architecture specs.
+- `src/research/`: Your trading strategies and analysis modules.
+- `src/data/`: Data ingestion, caching, and database management.
+- `src/core/`: Orchestration and configuration.
 
-Detailed documentation can be found in the `docs/` folder:
+## Documentation
 - [System Architecture](docs/architecture.md)
 - [Usage Guide](docs/usage.md)
 - [API Reference](docs/api.md)

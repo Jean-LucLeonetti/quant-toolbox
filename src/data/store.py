@@ -1,6 +1,8 @@
 import os
+import sqlite3
 import pandas as pd
-from typing import Optional
+from typing import Optional, List
+from datetime import date
 from src.core.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -9,9 +11,92 @@ class DataStore:
     """
     @brief A caching layer for financial data using Parquet files.
     """
-    def __init__(self, cache_dir: str = "data/cache"):
+    def __init__(self, cache_dir: str = "data/cache", db_path: str = "data/metadata.db"):
         self.cache_dir = cache_dir
+        self.db_path = db_path
         os.makedirs(self.cache_dir, exist_ok=True)
+        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+        self._init_db()
+
+    def _init_db(self):
+        """Initializes the SQLite database with the required schema."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        # Tickers table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS tickers (
+                ticker TEXT PRIMARY KEY,
+                name TEXT,
+                exchange TEXT,
+                currency TEXT,
+                sector TEXT,
+                industry TEXT,
+                market_cap REAL,
+                avg_volume REAL,
+                is_active BOOLEAN,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Universe membership table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS universe_membership (
+                ticker TEXT,
+                universe TEXT,
+                start_date DATE,
+                end_date DATE,
+                PRIMARY KEY (ticker, universe, start_date)
+            )
+        """)
+        
+        conn.commit()
+        conn.close()
+
+    def upsert_tickers(self, df: pd.DataFrame):
+        """Insert or update ticker metadata."""
+        if df.empty:
+            return
+            
+        conn = sqlite3.connect(self.db_path)
+        # We use a temporary table to handle the upsert (SQLite 3.24+ has ON CONFLICT, but this is safer)
+        df.to_sql('tickers_tmp', conn, if_exists='replace', index=False)
+        
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT OR REPLACE INTO tickers (ticker, name, exchange, currency, sector, industry, market_cap, avg_volume, is_active)
+            SELECT ticker, name, exchange, currency, sector, industry, market_cap, avg_volume, is_active FROM tickers_tmp
+        """)
+        
+        cursor.execute("DROP TABLE tickers_tmp")
+        conn.commit()
+        conn.close()
+        logger.info(f"Upserted {len(df)} tickers to metadata database.")
+
+    def update_universe_membership(self, tickers: List[str], universe_name: str):
+        """Updates membership for a given universe."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        today = date.today().isoformat()
+        
+        for ticker in tickers:
+            cursor.execute("""
+                INSERT OR IGNORE INTO universe_membership (ticker, universe, start_date)
+                VALUES (?, ?, ?)
+            """, (ticker, universe_name, today))
+            
+        conn.commit()
+        conn.close()
+        logger.info(f"Updated membership for universe: {universe_name}")
+
+    def query_universe(self, universe_name: str) -> List[str]:
+        """Returns the current constituents of a universe."""
+        conn = sqlite3.connect(self.db_path)
+        query = "SELECT ticker FROM universe_membership WHERE universe = ? AND end_date IS NULL"
+        df = pd.read_sql(query, conn, params=(universe_name,))
+        conn.close()
+        return df['ticker'].tolist()
 
     def _get_cache_path(self, ticker: str, start_date: str, end_date: str) -> str:
         """Generates a unique filename for the given parameters."""
