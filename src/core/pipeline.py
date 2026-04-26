@@ -1,0 +1,35 @@
+from src.stock_analysis.pipeline import run_stock_analysis
+from src.core.logger import setup_logger
+
+logger = setup_logger(__name__)
+
+class QuantPipeline:
+    """
+    @brief Main orchestration class for the Quant toolbox.
+    """
+    def __init__(self, config_path: str = "input/configuration.yaml"):
+        self.config_path = config_path
+
+    def run(self, mode: str = "stock_analysis"):
+        """
+        @brief Runs the specified analysis mode.
+        
+        @param mode The analysis mode to run (e.g., 'stock_analysis', 'pairs').
+        """
+        logger.info(f"Starting Quant Pipeline in '{mode}' mode...")
+        
+        if mode == "stock_analysis":
+            success = run_stock_analysis(self.config_path)
+        elif mode == "pairs":
+            logger.warning("Pairs trading mode not yet implemented in the core pipeline.")
+            success = False
+        else:
+            logger.error(f"Unknown analysis mode: {mode}")
+            success = False
+            
+        if success:
+            logger.info("Pipeline execution finished successfully.")
+        else:
+            logger.error("Pipeline execution failed.")
+            
+        return success
