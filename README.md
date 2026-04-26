@@ -4,10 +4,11 @@ A professional-grade modular Python framework for financial research, algorithmi
 
 ## Key Features
 - **Sophisticated Data Pipeline**: Automatic split/dividend adjustments and Parquet-based local caching.
-- **Universe Management**: SQLite-backed metadata store with point-in-time membership tracking (prevents survivorship bias).
-- **Pairs Trading Research**: Automated pipeline for cointegration testing, half-life estimation, and rolling Z-score strategies.
-- **Backtesting Engine**: Naive execution engine with visualized equity curves and Sharpe ratio reporting.
-- **Validated Configuration**: Schema-backed YAML configuration with IDE auto-completion support.
+- **Universe Management**: SQLite-backed metadata store with point-in-time membership tracking.
+- **Advanced Cointegration**: Supports **Engle-Granger** and direction-agnostic **Johansen** tests.
+- **Dynamic Hedging**: Choose between **Static OLS** or adaptive **Kalman Filter** hedge ratios.
+- **Regime Awareness**: Built-in logic for **COVID-period exclusions** and **Volatility-based regime filters**.
+- **Execution Backtest**: High-fidelity signal generation with $|Z|>2$ entry and convergence targets.
 
 ## Quick Start
 

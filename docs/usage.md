@@ -60,12 +60,24 @@ Results are organized in `output/pairs/` and `output/reports/`:
 - **`z_scores/`**: Signal verification plots (Z-score + Target Position).
 - **`backtests/`**: Cumulative P&L curves with Sharpe ratio annotations.
 
-## 5. Configuration (Schema Validated)
+## 5. Advanced Research Configuration
 
-All research runs consume `input/configuration.yaml`. This file is validated against the schema in `schema/config_schema.json`.
+The behavior of the `pairs` pipeline can be heavily tuned in `input/configuration.yaml`.
+
+### Hedge Ratio Modes (`hedge_mode`)
+- **`static_ols`**: Best for stationary assets (Utilities). Uses a fixed ratio for the whole period.
+- **`kalman_filter`**: Best for drifting assets (ETFs). Adaptively updates $\beta_t$ daily to capture structural shifts.
+
+### Cointegration Tests (`coint_mode`)
+- **`engle_granger`**: Standard two-step OLS approach. Fast and intuitive.
+- **`johansen`**: Vector Autoregression based. Direction-agnostic and more powerful for filtering out borderline spurious correlations.
+
+### Regime & Risk Controls
+- **`excluded_periods`**: Exclude specific date ranges (like the 2020 COVID shock) to prevent statistical distortion.
+- **`regime_filter`**: Set to `true` to enable a volatility-based circuit breaker. The strategy will sit out if rolling spread volatility exceeds the 90th percentile.
 
 ---
 
 ## Troubleshooting
-- **ModuleNotFoundError: jsonschema**: Run `pip install jsonschema` to enable configuration validation.
-- **Extreme Price Detected**: Check the data quality report; some tickers (like levered ETFs) may trigger safety filters during building.
+- **Johansen Results seem high**: The Johansen test reports Trace Statistics, not p-values. Compare against critical values (typically ~15.5 for significance at 5%).
+- **Signal Absorption**: If using the Kalman Filter on stationary assets, the filter may "eat" the mean-reversion signal by over-adapting to noise.

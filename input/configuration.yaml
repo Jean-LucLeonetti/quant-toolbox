@@ -12,5 +12,5 @@ pairs:
   z_entry: 2.0
   z_exit: 0.5
   hedge_mode: "static_ols"
-  coint_mode: "johansen"
+  coint_mode: "engle_granger"
   regime_filter: true
