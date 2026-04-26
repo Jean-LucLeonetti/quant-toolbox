@@ -1,4 +1,5 @@
 data:
   ticker: "FLY"
-  start_date: "2020-01-01"
+  start_date: "2015-01-01"
   end_date: "2026-04-26"
+  universe: "etf_pairs"

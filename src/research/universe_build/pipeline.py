@@ -35,6 +35,9 @@ class UniversePipeline:
             elif uni == "sp500":
                 # Full S&P 500
                 tickers = sp500_all['Symbol'].tolist()
+            elif uni == "etf_pairs":
+                # Structural ETF Pairs
+                tickers = ["GDX", "GDXJ", "USO", "UCO", "EWA", "EWC"]
             else:
                 logger.warning(f"Unknown universe type: {uni}")
                 continue

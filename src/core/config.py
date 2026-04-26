@@ -8,6 +8,7 @@ class DataConfig:
     ticker: str
     start_date: str
     end_date: str
+    universe: Optional[str] = "sp500_utilities"
 
 @dataclass
 class Config:

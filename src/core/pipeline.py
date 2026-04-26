@@ -21,19 +21,29 @@ class QuantPipeline:
         """
         logger.info(f"Starting Quant Pipeline in '{mode}' mode...")
         
+        # Load config
+        from src.core.config import Config
+        config = Config.load(self.config_path)
+        
         if mode == "stock_analysis":
             success = run_stock_analysis(self.config_path)
         elif mode == "universe_build":
             pipeline = UniversePipeline()
             # Refresh our core universes
-            success = pipeline.refresh(["sp500", "sp500_utilities", "sp500_utilities_staples"])
+            success = pipeline.refresh(["sp500", "sp500_utilities", "sp500_utilities_staples", "etf_pairs"])
         elif mode == "data_build":
             pipeline = DataBuildPipeline()
-            # Default to sp500_utilities if no config provided
-            success = pipeline.build("sp500_utilities", "2015-01-01", "2025-12-31")
+            success = pipeline.build(
+                config.data.universe, 
+                config.data.start_date, 
+                config.data.end_date
+            )
         elif mode == "pairs":
-            pipeline = PairsExplorationPipeline(universe_name="sp500_utilities")
-            success = pipeline.run(start="2015-01-01", end="2025-12-31")
+            pipeline = PairsExplorationPipeline(universe_name=config.data.universe)
+            success = pipeline.run(
+                start=config.data.start_date, 
+                end=config.data.end_date
+            )
         else:
             logger.error(f"Unknown analysis mode: {mode}")
             success = False
