@@ -2,7 +2,7 @@ data:
   ticker: "FLY"
   start_date: "2015-01-01"
   end_date: "2026-04-26"
-  universe: "sp500_utilities"
+  universe: "etf_commodity"
   excluded_periods:
     - start: "2020-02-20"
       end: "2020-05-20"

@@ -13,6 +13,9 @@ from src.core.config import PairsConfig
 
 logger = setup_logger(__name__)
 
+import shutil
+from datetime import datetime
+
 class PairsExplorationPipeline:
     """
     @brief Pipeline to explore and validate pair trading candidates.
@@ -21,12 +24,23 @@ class PairsExplorationPipeline:
         self.universe_name = universe_name
         self.pairs_config = pairs_config or PairsConfig()
         self.store = DataStore()
+        self.run_dir = None
 
     def run(self, start: str = None, end: str = None, excluded_periods: List[Dict[str, str]] = None):
         """
         @brief Main entry point for the pairs exploration.
         """
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.run_dir = f"output/runs/pairs_{self.universe_name}_{timestamp}"
+        os.makedirs(self.run_dir, exist_ok=True)
+        
+        # Save a copy of the configuration
+        config_path = "input/configuration.yaml"
+        if os.path.exists(config_path):
+            shutil.copy(config_path, os.path.join(self.run_dir, "configuration.yaml"))
+
         logger.info(f"Starting pairs exploration for universe: {self.universe_name}")
+        logger.info(f"Outputs will be saved to: {self.run_dir}")
         
         # 1. Load Price Panel
         prices = load_universe_prices(self.universe_name, start, end)
@@ -117,7 +131,7 @@ class PairsExplorationPipeline:
             })
             
         coint_df = pd.DataFrame(coint_results)
-        report_dir = "output/reports"
+        report_dir = os.path.join(self.run_dir, "reports")
         os.makedirs(report_dir, exist_ok=True)
         coint_path = os.path.join(report_dir, f"{self.universe_name}_cointegration_results.csv")
         coint_df.to_csv(coint_path, index=False)
@@ -146,7 +160,7 @@ class PairsExplorationPipeline:
         coint_df = coint_df.merge(robust_df, on=['Asset_1', 'Asset_2'])
         
         # 6. Save Enhanced Results
-        report_dir = "output/reports"
+        report_dir = os.path.join(self.run_dir, "reports")
         os.makedirs(report_dir, exist_ok=True)
         coint_path = os.path.join(report_dir, f"{self.universe_name}_cointegration_results.csv")
         coint_df.to_csv(coint_path, index=False)
@@ -186,7 +200,7 @@ class PairsExplorationPipeline:
         """
         metrics = []
         all_daily_returns = pd.DataFrame(index=returns.index)
-        output_dir = "output/pairs/backtests"
+        output_dir = os.path.join(self.run_dir, "pairs", "backtests")
         os.makedirs(output_dir, exist_ok=True)
         
         for _, row in pairs_df.iterrows():
@@ -268,7 +282,7 @@ class PairsExplorationPipeline:
         """
         @brief Plots the rolling z-score of the spread for selected pairs, overlaid with positions.
         """
-        output_dir = "output/pairs/z_scores"
+        output_dir = os.path.join(self.run_dir, "pairs", "z_scores")
         os.makedirs(output_dir, exist_ok=True)
         
         for _, row in pairs_df.iterrows():
@@ -388,7 +402,7 @@ class PairsExplorationPipeline:
         ax.grid(True, alpha=0.3)
         ax.legend()
         
-        report_dir = "output/pairs/backtests"
+        report_dir = os.path.join(self.run_dir, "pairs", "backtests")
         os.makedirs(report_dir, exist_ok=True)
         fig.savefig(os.path.join(report_dir, f"{self.universe_name}_portfolio_equity.png"))
         plt.close(fig)
@@ -435,7 +449,7 @@ class PairsExplorationPipeline:
         """
         @brief Plots the spread series (Y - gamma*X) for selected pairs.
         """
-        output_dir = "output/pairs/spreads"
+        output_dir = os.path.join(self.run_dir, "pairs", "spreads")
         os.makedirs(output_dir, exist_ok=True)
         
         for _, row in pairs_df.iterrows():
@@ -467,7 +481,7 @@ class PairsExplorationPipeline:
         """
         @brief Generates a readable markdown report of the ranked pairs.
         """
-        report_path = f"output/reports/{self.universe_name}_pairs_ranking.md"
+        report_path = os.path.join(self.run_dir, "reports", f"{self.universe_name}_pairs_ranking.md")
         os.makedirs(os.path.dirname(report_path), exist_ok=True)
         
         # Sort by best overall p-value
@@ -502,10 +516,10 @@ class PairsExplorationPipeline:
             f.write(display_df.to_markdown(index=False))
             f.write("\n\n## Plots\n")
             f.write("Visual verification plots can be found in:\n")
-            f.write("- **Spread Time Series**: `output/pairs/spreads/`\n")
-            f.write("- **Normalized Prices**: `output/pairs/normalized/`\n")
-            f.write("- **Rolling Z-Scores**: `output/pairs/z_scores/`\n")
-            f.write("- **Naive Backtests**: `output/pairs/backtests/`\n")
+            f.write("- **Spread Time Series**: `pairs/spreads/`\n")
+            f.write("- **Normalized Prices**: `pairs/normalized/`\n")
+            f.write("- **Rolling Z-Scores**: `pairs/z_scores/`\n")
+            f.write("- **Naive Backtests**: `pairs/backtests/`\n")
 
         logger.info(f"Ranking report saved to {report_path}")
 
@@ -513,7 +527,7 @@ class PairsExplorationPipeline:
         """
         @brief Generates normalized price plots for the selected pairs.
         """
-        output_dir = "output/pairs/normalized"
+        output_dir = os.path.join(self.run_dir, "pairs", "normalized")
         os.makedirs(output_dir, exist_ok=True)
         
         for a, b in pairs:
