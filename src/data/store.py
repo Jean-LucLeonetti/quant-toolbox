@@ -13,8 +13,12 @@ class DataStore:
     """
     def __init__(self, cache_dir: str = "data/cache", db_path: str = "data/metadata.db"):
         self.cache_dir = cache_dir
+        self.raw_dir = "data/raw"
+        self.processed_dir = "data/processed"
         self.db_path = db_path
         os.makedirs(self.cache_dir, exist_ok=True)
+        os.makedirs(self.raw_dir, exist_ok=True)
+        os.makedirs(self.processed_dir, exist_ok=True)
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self._init_db()
 
@@ -97,6 +101,46 @@ class DataStore:
         df = pd.read_sql(query, conn, params=(universe_name,))
         conn.close()
         return df['ticker'].tolist()
+
+    def has_fresh(self, ticker: str, max_age_days: int = 7) -> bool:
+        """Checks if ticker data in raw storage is fresh enough."""
+        path = os.path.join(self.raw_dir, f"{ticker}.parquet")
+        if not os.path.exists(path):
+            return False
+            
+        from datetime import datetime, timedelta
+        file_time = datetime.fromtimestamp(os.path.getmtime(path))
+        return (datetime.now() - file_time) < timedelta(days=max_age_days)
+
+    def save_raw(self, ticker: str, df: pd.DataFrame):
+        """Saves raw ticker data to a dedicated file."""
+        if df is None or df.empty:
+            return
+        path = os.path.join(self.raw_dir, f"{ticker}.parquet")
+        df.to_parquet(path)
+        logger.debug(f"Saved raw data for {ticker} to {path}")
+
+    def load_raw(self, ticker: str) -> Optional[pd.DataFrame]:
+        """Loads raw ticker data."""
+        path = os.path.join(self.raw_dir, f"{ticker}.parquet")
+        if os.path.exists(path):
+            return pd.read_parquet(path)
+        return None
+
+    def save_processed(self, universe_name: str, df: pd.DataFrame):
+        """Saves the aligned panel to processed storage."""
+        if df is None or df.empty:
+            return
+        path = os.path.join(self.processed_dir, f"{universe_name}_panel.parquet")
+        df.to_parquet(path)
+        logger.info(f"Saved processed panel for {universe_name} to {path}")
+
+    def load_processed(self, universe_name: str) -> Optional[pd.DataFrame]:
+        """Loads a processed panel."""
+        path = os.path.join(self.processed_dir, f"{universe_name}_panel.parquet")
+        if os.path.exists(path):
+            return pd.read_parquet(path)
+        return None
 
     def _get_cache_path(self, ticker: str, start_date: str, end_date: str) -> str:
         """Generates a unique filename for the given parameters."""

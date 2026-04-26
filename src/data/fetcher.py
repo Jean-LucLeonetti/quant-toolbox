@@ -52,3 +52,20 @@ class DataFetcher:
         except Exception as e:
             logger.error(f"Failed to fetch data for {ticker}: {e}")
             return None
+    def fetch_prices(self, ticker: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
+        """
+        @brief Fetches historical prices for a given ticker.
+        Always fetches from API and auto-adjusts.
+        """
+        logger.info(f"Fetching prices for {ticker} from {start_date} to {end_date}...")
+        try:
+            # We want both standard OHLC and adjusted if possible, 
+            # but yfinance auto_adjust=True replaces 'Close' with adjusted close.
+            data = yf.download(ticker, start=start_date, end=end_date, auto_adjust=True)
+            if data.empty:
+                logger.warning(f"No data found for ticker {ticker}.")
+                return None
+            return data
+        except Exception as e:
+            logger.error(f"Failed to fetch prices for {ticker}: {e}")
+            return None

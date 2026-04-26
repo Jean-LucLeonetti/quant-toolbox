@@ -1,5 +1,6 @@
 from src.research.stock_analysis.pipeline import run_stock_analysis
 from src.research.universe_build.pipeline import UniversePipeline
+from src.research.data_build.pipeline import DataBuildPipeline
 from src.core.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -25,6 +26,10 @@ class QuantPipeline:
             pipeline = UniversePipeline()
             # For now, we refresh both the full S&P 500 and our Universe 1
             success = pipeline.refresh(["sp500", "sp500_utilities_staples"])
+        elif mode == "data_build":
+            pipeline = DataBuildPipeline()
+            # Default to sp500_utilities if no config provided
+            success = pipeline.build("sp500_utilities", "2015-01-01", "2025-12-31")
         elif mode == "pairs":
             logger.warning("Pairs trading mode not yet implemented in the core pipeline.")
             success = False

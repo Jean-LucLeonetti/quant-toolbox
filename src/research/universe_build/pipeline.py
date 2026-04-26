@@ -29,6 +29,9 @@ class UniversePipeline:
             if uni == "sp500_utilities_staples":
                 # Universe 1: Utilities and Consumer Staples
                 tickers = filter_universe_by_sector(sp500_all, ['Utilities', 'Consumer Staples'])
+            elif uni == "sp500_utilities":
+                # Sector focus: Utilities only
+                tickers = filter_universe_by_sector(sp500_all, ['Utilities'])
             elif uni == "sp500":
                 # Full S&P 500
                 tickers = sp500_all['Symbol'].tolist()
