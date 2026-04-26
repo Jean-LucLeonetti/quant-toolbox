@@ -22,7 +22,7 @@
         },
         "universe": {
           "type": "string",
-          "enum": ["sp500", "sp500_utilities", "sp500_utilities_staples", "etf_pairs"],
+          "enum": ["sp500", "sp500_utilities", "sp500_utilities_staples", "etf_pairs", "etf_sector", "etf_country", "etf_commodity"],
           "description": "Universe name for multi-asset builds and pairs research."
         },
         "excluded_periods": {
