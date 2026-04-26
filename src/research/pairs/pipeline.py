@@ -153,18 +153,94 @@ class PairsExplorationPipeline:
         logger.info(f"Plotting spreads for top 5 cointegrated pairs...")
         self._plot_spread_series(prices, top_5_coint)
 
-        # 8. Plot Normalized Prices & Z-Scores for Top Cointegrated
+        # 8. Backtest Top Pairs and Store Metrics
+        logger.info(f"Performing naive backtests for top 5 pairs...")
+        backtest_results = self._backtest_naive(prices, returns, top_5_coint)
+        
+        # Merge backtest metrics into coint_df
+        coint_df = coint_df.merge(backtest_results, on=['Asset_1', 'Asset_2'], how='left')
+
+        # 9. Plot Normalized Prices & Z-Scores
         self._plot_normalized_pairs(prices, list(zip(top_5_coint['Asset_1'], top_5_coint['Asset_2'])))
         self._plot_z_scores(prices, top_5_coint)
 
-        # 9. Generate Markdown Ranking Report
+        # 10. Generate Enhanced Markdown Ranking Report
         self._generate_ranking_report(coint_df)
 
         return True
 
+    def _backtest_naive(self, prices: pd.DataFrame, returns: pd.DataFrame, pairs_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        @brief Performs a naive backtest (no costs) and plots equity curves.
+        @return DataFrame containing backtest performance metrics.
+        """
+        output_dir = "output/pairs/backtests"
+        os.makedirs(output_dir, exist_ok=True)
+        
+        metrics = []
+        
+        for _, row in pairs_df.iterrows():
+            a, b = row['Asset_1'], row['Asset_2']
+            gamma = row['Hedge_Ratio']
+            
+            # 1. Z-Score Signal Generation (reuse logic for consistency)
+            y = prices[a]
+            x = sm.add_constant(prices[b])
+            spread = sm.OLS(y, x).fit().resid
+            
+            mu = spread.rolling(window=60).mean()
+            sigma = spread.rolling(window=60).std()
+            z = (spread - mu) / sigma
+            
+            # Position Rules
+            pos = pd.Series(index=z.index, data=np.nan)
+            pos[z < -2] = 1
+            pos[z > 2] = -1
+            pos[z.abs() < 0.5] = 0
+            pos = pos.ffill().fillna(0)
+            
+            # 2. Daily P&L Calculation
+            # return_spread = return_A - beta * return_B
+            # We use .shift(1) to avoid lookahead (position at end of t-1 determines return at t)
+            pair_return = pos.shift(1) * (returns[a] - gamma * returns[b])
+            pair_return = pair_return.fillna(0)
+            
+            # Cumulative P&L
+            cum_ret = pair_return.cumsum()
+            equity_curve = np.exp(cum_ret) * 100
+            
+            # Stats
+            total_return = (equity_curve.iloc[-1] / 100) - 1
+            ann_ret = (1 + total_return)**(252/len(equity_curve)) - 1
+            ann_vol = pair_return.std() * (255**0.5)
+            sharpe = (ann_ret / ann_vol) if ann_vol > 0 else 0
+            
+            metrics.append({
+                'Asset_1': a,
+                'Asset_2': b,
+                'Total_Return': total_return,
+                'Ann_Return': ann_ret,
+                'Sharpe': sharpe
+            })
+            
+            # Plot
+            fig, ax = plt.subplots(figsize=(12, 6))
+            equity_curve.plot(ax=ax, color='green', lw=2)
+            ax.set_title(f"Naive Equity Curve: {a} vs {b}", fontsize=14)
+            ax.set_ylabel("Equity (Base 100)")
+            ax.grid(True, alpha=0.3)
+            ax.text(0.02, 0.95, f"Total Return: {total_return:.1%}\nAnn. Return: {ann_ret:.1%}\nSharpe: {sharpe:.2f}", 
+                    transform=ax.transAxes, verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.5))
+            
+            save_path = os.path.join(output_dir, f"{a}_{b}_equity.png")
+            fig.savefig(save_path)
+            plt.close(fig)
+            
+        return pd.DataFrame(metrics)
+
     def _plot_z_scores(self, prices: pd.DataFrame, pairs_df: pd.DataFrame, window: int = 60):
         """
-        @brief Plots the rolling z-score of the spread for selected pairs.
+        @brief Plots the rolling z-score of the spread for selected pairs, overlaid with positions.
         """
         output_dir = "output/pairs/z_scores"
         os.makedirs(output_dir, exist_ok=True)
@@ -184,20 +260,38 @@ class PairsExplorationPipeline:
             sigma = spread.rolling(window=window).std()
             z = (spread - mu) / sigma
             
-            fig, ax = plt.subplots(figsize=(12, 5))
-            z.plot(ax=ax, color='teal', alpha=0.8)
-            ax.axhline(0, color='black', linestyle='-')
-            ax.axhline(2, color='red', linestyle='--')
-            ax.axhline(-2, color='red', linestyle='--')
-            ax.axhline(1, color='orange', linestyle=':')
-            ax.axhline(-1, color='orange', linestyle=':')
+            # 2. Position Rules
+            pos = pd.Series(index=z.index, data=np.nan)
+            pos[z < -2] = 1   # Long spread
+            pos[z > 2] = -1   # Short spread
+            pos[z.abs() < 0.5] = 0  # Exit
+            pos = pos.ffill().fillna(0)
             
-            ax.set_title(f"Rolling Z-Score (60d): {a} vs {b}", fontsize=14)
-            ax.set_ylabel("Z-Score")
-            ax.set_ylim(-4, 4)
-            ax.grid(True, alpha=0.3)
+            fig, ax1 = plt.subplots(figsize=(12, 6))
             
-            save_path = os.path.join(output_dir, f"{a}_{b}_zscore.png")
+            # Plot Z-Score
+            ax1.plot(z.index, z, color='teal', alpha=0.6, label='Z-Score')
+            ax1.axhline(0, color='black', linestyle='-', alpha=0.3)
+            ax1.axhline(2, color='red', linestyle='--', alpha=0.5)
+            ax1.axhline(-2, color='red', linestyle='--', alpha=0.5)
+            ax1.axhline(0.5, color='orange', linestyle=':', alpha=0.3)
+            ax1.axhline(-0.5, color='orange', linestyle=':', alpha=0.3)
+            
+            ax1.set_ylabel("Z-Score", color='teal')
+            ax1.tick_params(axis='y', labelcolor='teal')
+            ax1.set_ylim(-4, 4)
+            
+            # Plot Position Overlay
+            ax2 = ax1.twinx()
+            ax2.fill_between(pos.index, 0, pos, color='gray', alpha=0.2, label='Position')
+            ax2.set_ylabel("Position (-1, 0, +1)", color='gray')
+            ax2.tick_params(axis='y', labelcolor='gray')
+            ax2.set_ylim(-1.5, 1.5)
+            
+            plt.title(f"Z-Score & Position Rules (60d): {a} vs {b}", fontsize=14)
+            fig.tight_layout()
+            
+            save_path = os.path.join(output_dir, f"{a}_{b}_zscore_pos.png")
             fig.savefig(save_path)
             plt.close(fig)
 
@@ -248,10 +342,16 @@ class PairsExplorationPipeline:
             f.write("Pairs are ranked by their full-period cointegration. **Robust** pairs are those with $p < 0.05$ in both 2015-2019 and 2020-2025.\n\n")
             
             # Format columns for display
-            display_df = ranked_df[[
-                'Asset_1', 'Asset_2', 'Correlation', 'Hedge_Ratio', 
-                'Coint_P_Value', 'P_Val_2015_2020', 'P_Val_2020_2025', 'Half_Life_Days', 'Is_Robust'
-            ]].copy()
+            columns = [
+                'Asset_1', 'Asset_2', 'Coint_P_Value', 'Half_Life_Days', 
+                'Is_Robust', 'Ann_Return', 'Sharpe'
+            ]
+            # Ensure metrics exist in the ranking (only top 5 will have them initially)
+            for col in ['Ann_Return', 'Sharpe']:
+                if col not in ranked_df.columns:
+                    ranked_df[col] = np.nan
+
+            display_df = ranked_df[columns].copy()
             
             # Style
             def style_robust(row):
@@ -260,6 +360,8 @@ class PairsExplorationPipeline:
             display_df['Is_Robust'] = display_df.apply(style_robust, axis=1)
             display_df['Coint_P_Value'] = display_df['Coint_P_Value'].map(lambda x: f"**{x:.4f}**" if x < 0.05 else f"{x:.4f}")
             display_df['Half_Life_Days'] = display_df['Half_Life_Days'].map(lambda x: f"{x:.1f}" if not np.isnan(x) else "∞")
+            display_df['Ann_Return'] = display_df['Ann_Return'].map(lambda x: f"{x:.1%}" if not np.isnan(x) else "-")
+            display_df['Sharpe'] = display_df['Sharpe'].map(lambda x: f"{x:.2f}" if not np.isnan(x) else "-")
             
             f.write(display_df.to_markdown(index=False))
             f.write("\n\n## Plots\n")
@@ -267,6 +369,7 @@ class PairsExplorationPipeline:
             f.write("- **Spread Time Series**: `output/pairs/spreads/`\n")
             f.write("- **Normalized Prices**: `output/pairs/normalized/`\n")
             f.write("- **Rolling Z-Scores**: `output/pairs/z_scores/`\n")
+            f.write("- **Naive Backtests**: `output/pairs/backtests/`\n")
 
         logger.info(f"Ranking report saved to {report_path}")
 
