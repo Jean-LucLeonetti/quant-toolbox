@@ -25,26 +25,47 @@ This command:
 3. Automatically identifies **Universe 1** (S&P 500 Utilities and Consumer Staples).
 4. Populates the SQLite database at `data/metadata.db`.
 
-## 3. Stock Analysis
+## 3. Building Price Panels (data_build)
 
-To analyze and plot a specific stock:
-1. Update `input/configuration.yaml` with the desired ticker and dates.
-2. Run the analysis:
+Before running multi-asset research (like pairs trading), you need to generate a clean, aligned price panel for your target universe.
+
 ```bash
-python main.py stock_analysis
+python main.py data_build
+```
+This command:
+1. Loads all tickers from the universe specified in `input/configuration.yaml`.
+2. Validates data quality (checking for extreme price moves/gaps).
+3. Aligns daily adjusted close prices into a single Parquet panel.
+4. Generates a **Data Quality Report** in `output/reports/`.
+
+## 4. Pairs Trading Research (pairs)
+
+The `pairs` mode performs an end-to-end statistical arbitrage analysis.
+
+```bash
+python main.py pairs
 ```
 
-### Outputs
-- **Plots**: Visualizations are saved in `output/` (e.g., `output/AAPL_price.png`).
-- **Data Cache**: Raw market data is cached as Parquet files in `data/cache/` to speed up future runs.
+### Pipeline Steps:
+1. **Cointegration Screening**: Runs the Engle-Granger test on high-correlation pairs.
+2. **OU Process Fitting**: Estimates the half-life of mean reversion.
+3. **Robustness Validation**: Tests if cointegration persists across sub-periods (split-period testing).
+4. **Signal Generation**: Calculates rolling Z-scores and target positions.
+5. **Naive Backtest**: Generates equity curves assuming market-neutral execution.
 
-## 4. Querying Metadata
+### Diagnostic Outputs:
+Results are organized in `output/pairs/` and `output/reports/`:
+- **`normalized/`**: "Eyeball test" plots of price co-movement.
+- **`spreads/`**: Time-series plots of the OLS residuals.
+- **`z_scores/`**: Signal verification plots (Z-score + Target Position).
+- **`backtests/`**: Cumulative P&L curves with Sharpe ratio annotations.
 
-You can query the SQLite database directly to explore your universes:
-```bash
-sqlite3 data/metadata.db "SELECT ticker, sector FROM tickers WHERE sector = 'Utilities';"
-```
+## 5. Configuration (Schema Validated)
+
+All research runs consume `input/configuration.yaml`. This file is validated against the schema in `schema/config_schema.json`.
+
+---
 
 ## Troubleshooting
-- **403 Forbidden**: Ensure your internet connection is active; the scraper uses a custom User-Agent to avoid Wikipedia blocks.
-- **Missing Data**: If a plot is blank, check `src.data.fetcher` logs to verify if Yahoo Finance returned data for the requested dates.
+- **ModuleNotFoundError: jsonschema**: Run `pip install jsonschema` to enable configuration validation.
+- **Extreme Price Detected**: Check the data quality report; some tickers (like levered ETFs) may trigger safety filters during building.
