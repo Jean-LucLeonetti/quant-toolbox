@@ -8,9 +8,11 @@ data:
   universe: etf_commodity
 pairs:
   coint_mode: johansen
-  hedge_mode: kalman_filter
+  hedge_mode: static_ols
   portfolio_size: 30
   regime_filter: true
+  wf_test_months: 6
+  wf_train_months: 36
   z_entry: 2.0
   z_exit: 0.5
   z_window: 60

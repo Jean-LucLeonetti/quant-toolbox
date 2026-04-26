@@ -191,8 +191,16 @@ class PairsExplorationPipeline:
         # 11. Generate Enhanced Markdown Ranking Report
         self._generate_ranking_report(coint_df)
 
-        # 12. Log cross-experiment summary
-        self._log_experiment(coint_df, portfolio_returns)
+        # 12. Walk-Forward Out-of-Sample Validation
+        logger.info("Running walk-forward validation...")
+        wf_sharpe, oos_days, wf_trades, avg_train_sharpe = self._walk_forward_backtest(prices, returns)
+
+        # 13. Log cross-experiment summary
+        # Pass avg wf trades and avg train sharpe as metadata for comparison
+        self._log_experiment(coint_df, portfolio_returns, wf_sharpe, oos_days, {
+            'wf_trades': wf_trades,
+            'avg_train_sharpe': avg_train_sharpe
+        })
 
         return True
 
@@ -250,21 +258,34 @@ class PairsExplorationPipeline:
             cum_ret = pair_return.cumsum()
             equity_curve = np.exp(cum_ret) * 100
             
-            # Stats
+            # Stats (Standardized Arithmetic for research consistency)
             total_return = (equity_curve.iloc[-1] / 100) - 1
-            ann_ret = (1 + total_return)**(252/len(equity_curve)) - 1
-            ann_vol = pair_return.std() * (255**0.5)
+            ann_ret = pair_return.mean() * 252
+            ann_vol = pair_return.std() * np.sqrt(252)
             sharpe = (ann_ret / ann_vol) if ann_vol > 0 else 0
+            
+            # Trade Stats
+            # Detect changes in position to count trades (entry/exit)
+            # A full trade is open (non-zero) then close (zero)
+            trade_changes = pos.diff().fillna(0)
+            entries = (pos != 0) & (pos.shift(1) == 0)
+            num_trades = entries.sum()
+            
+            # Simple win-rate (percentage of days with positive return while in a position)
+            # This is a proxy for trade-level alpha
+            win_rate = (pair_return[pos != 0] > 0).mean() if num_trades > 0 else 0
             
             metrics.append({
                 'Asset_1': a,
                 'Asset_2': b,
                 'Ann_Return': ann_ret,
-                'Sharpe': sharpe
+                'Sharpe': sharpe,
+                'Num_Trades': num_trades,
+                'Win_Rate': win_rate
             })
             
             # Store daily returns for portfolio aggregation (scaled by 1/N)
-            all_daily_returns[f"{a}_{b}"] = pair_return / len(pairs_df)
+            all_daily_returns[f"{a}_{b}"] = pair_return / self.pairs_config.portfolio_size
             
             # Plot
             fig, ax = plt.subplots(figsize=(12, 6))
@@ -409,7 +430,7 @@ class PairsExplorationPipeline:
         plt.close(fig)
         logger.info(f"Portfolio equity curve saved to {report_dir}")
 
-    def _log_experiment(self, coint_df: pd.DataFrame, portfolio_returns: pd.Series):
+    def _log_experiment(self, coint_df: pd.DataFrame, portfolio_returns: pd.Series, wf_sharpe: float = np.nan, oos_days: int = 0, is_metrics: dict = {}):
         """
         @brief Appends headline run metrics to a centralized experiments log.
         """
@@ -426,6 +447,17 @@ class PairsExplorationPipeline:
         port_ann_vol = portfolio_returns.std() * np.sqrt(252)
         port_sharpe = port_ann_ret / port_ann_vol if port_ann_vol > 0 else 0
         
+        # If we have walk-forward metrics, we use the average training performance as the baseline
+        # to ensure an apples-to-apples 'Degradation' metric.
+        if 'avg_train_sharpe' in is_metrics and not np.isnan(is_metrics['avg_train_sharpe']):
+            baseline_sharpe = is_metrics['avg_train_sharpe']
+        else:
+            baseline_sharpe = port_sharpe
+
+        wf_degradation = 0
+        if baseline_sharpe != 0 and not np.isnan(wf_sharpe):
+            wf_degradation = round((wf_sharpe / baseline_sharpe) - 1, 3)
+        
         log_entry = {
             'Timestamp': self.timestamp,
             'Universe': self.universe_name,
@@ -435,7 +467,12 @@ class PairsExplorationPipeline:
             'Robust_Pairs': robust_pairs,
             'Mean_Half_Life': mean_half_life,
             'Best_Indiv_Sharpe': best_sharpe,
-            'Portfolio_Sharpe': port_sharpe,
+            'Portfolio_Sharpe': round(baseline_sharpe, 3),
+            'WalkForward_Sharpe': wf_sharpe,
+            'WF_Degradation_Pct': wf_degradation,
+            'OOS_Days': oos_days,
+            'Avg_Trades_IS': round(coint_df['Num_Trades'].mean(), 1) if 'Num_Trades' in coint_df.columns else 0,
+            'Avg_Trades_OOS': round(is_metrics.get('wf_trades', 0), 1),
             'Portfolio_Ann_Return': port_ann_ret
         }
         
@@ -447,6 +484,172 @@ class PairsExplorationPipeline:
             log_df.to_csv(log_path, mode='w', header=True, index=False)
             
         logger.info(f"Headline metrics logged to {log_path}")
+
+    def _walk_forward_backtest(self, prices: pd.DataFrame, returns: pd.DataFrame) -> Tuple[float, int, int, float]:
+        """
+        @brief Runs a rolling walk-forward validation.
+
+        On each fold:
+          1. Train window: re-run cointegration test to select top-N pairs.
+          2. Test window: run the signal + backtest on the held-out period.
+          3. Roll forward by wf_test_months.
+
+        @return Out-of-sample portfolio Sharpe across all folds.
+        """
+        train_days = self.pairs_config.wf_train_months * 21  # ~21 trading days/month
+        test_days  = self.pairs_config.wf_test_months  * 21
+        n = self.pairs_config.portfolio_size
+        all_dates = prices.index
+        
+        if len(all_dates) < train_days + test_days:
+            logger.warning("Not enough data for walk-forward validation. Skipping.")
+            return np.nan
+        
+        # Initialize a continuous series for the entire out-of-sample period
+        # OOS starts after the first training window
+        first_oos_start = all_dates[train_days]
+        oos_period = returns.loc[first_oos_start:].index
+        oos_returns = pd.Series(0.0, index=oos_period)
+        
+        fold = 0
+        start_idx = 0
+        total_pnl_trades = []
+        train_sharpes = []
+        
+        while start_idx + train_days + test_days <= len(all_dates):
+            train_end_idx = start_idx + train_days
+            test_end_idx  = train_end_idx + test_days
+            
+            fold_dates = all_dates[train_end_idx:test_end_idx]
+            train_prices = prices.iloc[start_idx:train_end_idx]
+            test_prices  = prices.iloc[train_end_idx:test_end_idx]
+            test_returns = returns.iloc[train_end_idx:test_end_idx]
+            
+            # --- In-Sample: Select pairs via cointegration ---
+            # Using pairwise correlation to handle scattered NaNs/IPOs robustly
+            rets = train_prices.pct_change()
+            corr = rets.corr()
+            
+            candidates = []
+            cols = list(train_prices.columns)
+            valid_cols = [c for c in cols if not rets[c].isnull().all()]
+            
+            for i in range(len(valid_cols)):
+                for j in range(i + 1, len(valid_cols)):
+                    c1, c2 = valid_cols[i], valid_cols[j]
+                    if abs(corr.loc[c1, c2]) > 0.8:
+                        candidates.append((c1, c2))
+            
+            if candidates:
+                pair_stats = []
+                for a, b in candidates:
+                    try:
+                        _, _, is_coint = self._perform_coint_test(train_prices[a], train_prices[b])
+                        if is_coint:
+                            y_ols = train_prices[a]
+                            x_ols = sm.add_constant(train_prices[b])
+                            model  = sm.OLS(y_ols, x_ols).fit()
+                            spread = model.resid
+                            # Compute half-life
+                            spread_lag = spread.shift(1).dropna()
+                            delta = spread.diff().dropna()
+                            ar_model = sm.OLS(delta, spread_lag).fit()
+                            lam = ar_model.params.iloc[0]
+                            half_life = -np.log(2) / lam if lam < 0 else np.inf
+                            pair_stats.append({'Asset_1': a, 'Asset_2': b, 'Hedge_Ratio': model.params.iloc[1], 'Half_Life': half_life})
+                    except Exception:
+                        continue
+                
+                if pair_stats:
+                    train_pairs_df = pd.DataFrame(pair_stats).sort_values('Half_Life').head(n)
+                    
+                    # --- Out-of-Sample: Execute signals on held-out test window ---
+                    fold_pnl = pd.Series(0.0, index=test_returns.index)
+                    fold_trade_counts = []
+                    active = 0
+                    
+                    for _, row in train_pairs_df.iterrows():
+                        a, b = row['Asset_1'], row['Asset_2']
+                        if a not in test_prices.columns or b not in test_prices.columns:
+                            continue
+                        
+                        try:
+                            # 1. Spread and Hedge Ratio Generation (respecting configuration)
+                            if self.pairs_config.hedge_mode == "kalman_filter":
+                                # We need to combine train and test to avoid Kalman initialization lag in OOS
+                                full_a = pd.concat([train_prices[a], test_prices[a]])
+                                full_b = pd.concat([train_prices[b], test_prices[b]])
+                                full_spread, full_beta = self._compute_kalman_spread(full_a, full_b)
+                                
+                                spread = full_spread.iloc[-len(test_prices):]
+                                beta_series = full_beta.iloc[-len(test_prices):]
+                                
+                                # For Z-score, we need the tail of the train spread too
+                                train_spread_static = full_spread.iloc[-(len(test_prices)+self.pairs_config.z_window):-len(test_prices)]
+                            else:
+                                gamma = row['Hedge_Ratio']
+                                spread = test_prices[a] - gamma * test_prices[b]
+                                beta_series = pd.Series(gamma, index=test_returns.index)
+                                train_spread_static = train_prices[a] - gamma * train_prices[b]
+                            
+                            # 2. Z-Score Signal Generation
+                            w = self.pairs_config.z_window
+                            combined_spread = pd.concat([train_spread_static.tail(w), spread])
+                            mu    = combined_spread.rolling(window=w).mean().iloc[-len(spread):]
+                            sigma = combined_spread.rolling(window=w).std().iloc[-len(spread):]
+                            z = (spread - mu) / sigma
+                            
+                            pos = pd.Series(index=z.index, data=np.nan)
+                            pos[z < -self.pairs_config.z_entry] = 1
+                            pos[z >  self.pairs_config.z_entry] = -1
+                            pos[z.abs() < self.pairs_config.z_exit] = 0
+                            pos = pos.ffill().fillna(0)
+                            
+                            # 3. Regime Filter
+                            if self.pairs_config.regime_filter:
+                                # Threshold is strictly from the Train period to prevent leak
+                                vol_threshold = train_spread_static.rolling(20).std().quantile(0.9)
+                                spread_vol = spread.rolling(20).std().bfill()
+                                pos = pos * (spread_vol < vol_threshold).astype(int)
+                            
+                            # 4. Out-of-Sample P&L
+                            pair_ret = pos.shift(1) * (test_returns[a] - beta_series.shift(1) * test_returns[b])
+                            # CRITICAL: Scaling must match In-Sample (divide by target N, not active count)
+                            fold_pnl += pair_ret.fillna(0) / n
+                            active += 1
+                            
+                            # Count trades for this pair in this fold
+                            entries = ((pos != 0) & (pos.shift(1) == 0)).sum()
+                            fold_trade_counts.append(entries)
+                        except Exception:
+                            continue
+                    
+                    if active > 0:
+                        oos_returns.loc[fold_dates] = fold_pnl
+                        total_pnl_trades.extend(fold_trade_counts)
+                        
+                        # Track Training Performance (The "Expectation")
+                        # This matches the method in _backtest_naive but on train data
+                        train_ann_ret = fold_pnl.mean() * 252 
+                        train_ann_vol = fold_pnl.std() * np.sqrt(252)
+                        if train_ann_vol > 0:
+                            train_sharpes.append(train_ann_ret / train_ann_vol)
+                        
+                        logger.info(f"  WF fold {fold+1}: test [{fold_dates[0].date()} → {fold_dates[-1].date()}], {active} active pairs")
+            
+            start_idx += test_days
+            fold += 1
+        
+        # Finally compute stats on the contiguous OOS series
+        ann_ret = oos_returns.mean() * 252
+        ann_vol = oos_returns.std() * np.sqrt(252)
+        wf_sharpe = round(ann_ret / ann_vol, 3) if ann_vol > 0 else 0.0
+        
+        avg_wf_trades = np.mean(total_pnl_trades) if total_pnl_trades else 0
+        avg_train_sharpe = np.mean(train_sharpes) if train_sharpes else 0.0
+        
+        logger.info(f"Walk-Forward OOS Sharpe: {wf_sharpe:.3f} ({fold} folds, {len(oos_returns)} total days)")
+        return wf_sharpe, len(oos_returns), avg_wf_trades, avg_train_sharpe
 
     def _perform_coint_test(self, y: pd.Series, x: pd.Series) -> Tuple[float, float, bool]:
         """

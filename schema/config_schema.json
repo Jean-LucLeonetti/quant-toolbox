@@ -83,6 +83,18 @@
           "type": "integer",
           "default": 10,
           "description": "Number of pairs to include in the aggregated portfolio backtest."
+        },
+        "wf_train_months": {
+          "type": "integer",
+          "minimum": 12,
+          "default": 36,
+          "description": "Walk-forward training window length in months."
+        },
+        "wf_test_months": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 6,
+          "description": "Walk-forward out-of-sample test window length in months."
         }
       },
       "additionalProperties": false

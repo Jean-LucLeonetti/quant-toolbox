@@ -22,6 +22,8 @@ class PairsConfig:
     coint_mode: str = "engle_granger"
     regime_filter: bool = False
     portfolio_size: int = 10
+    wf_train_months: int = 36  # Walk-forward training window (months)
+    wf_test_months: int = 6    # Walk-forward out-of-sample test window (months)
 
 @dataclass
 class Config:
