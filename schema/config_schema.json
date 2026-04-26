@@ -24,6 +24,18 @@
           "type": "string",
           "enum": ["sp500", "sp500_utilities", "sp500_utilities_staples", "etf_pairs"],
           "description": "Universe name for multi-asset builds and pairs research."
+        },
+        "excluded_periods": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "start": { "type": "string", "format": "date" },
+              "end": { "type": "string", "format": "date" }
+            },
+            "required": ["start", "end"]
+          },
+          "description": "List of date ranges to exclude from analysis (e.g. COVID peak)."
         }
       },
       "required": ["start_date", "end_date"],
@@ -61,6 +73,11 @@
           "enum": ["engle_granger", "johansen"],
           "default": "engle_granger",
           "description": "Cointegration test type."
+        },
+        "regime_filter": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true, sit out during high volatility regimes."
         }
       },
       "additionalProperties": false

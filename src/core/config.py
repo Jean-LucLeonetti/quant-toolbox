@@ -1,7 +1,7 @@
 import yaml
 import json
 from dataclasses import dataclass, field
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import os
 from jsonschema import validate
 
@@ -11,6 +11,7 @@ class DataConfig:
     start_date: str
     end_date: str
     universe: Optional[str] = "sp500_utilities"
+    excluded_periods: List[Dict[str, str]] = field(default_factory=list)
 
 @dataclass
 class PairsConfig:
@@ -19,6 +20,7 @@ class PairsConfig:
     z_exit: float = 0.5
     hedge_mode: str = "static_ols"
     coint_mode: str = "engle_granger"
+    regime_filter: bool = False
 
 @dataclass
 class Config:
@@ -50,9 +52,10 @@ class Config:
         """
         @brief Creates a Config instance from a dictionary.
         """
-        data_config = DataConfig(**data.get('data', {}))
-        pairs_config = PairsConfig(**data.get('pairs', {}))
+        data_config_raw = data.get('data', {})
+        data_config = DataConfig(**{k: v for k, v in data_config_raw.items() if k in DataConfig.__dataclass_fields__})
+        
+        pairs_config_raw = data.get('pairs', {})
+        pairs_config = PairsConfig(**{k: v for k, v in pairs_config_raw.items() if k in PairsConfig.__dataclass_fields__})
+        
         return cls(data=data_config, pairs=pairs_config)
-
-# Global config instance (optional, but convenient)
-# config = Config.load("input/configuration.yaml")

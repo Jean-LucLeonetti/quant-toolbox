@@ -22,7 +22,7 @@ class PairsExplorationPipeline:
         self.pairs_config = pairs_config or PairsConfig()
         self.store = DataStore()
 
-    def run(self, start: str = None, end: str = None):
+    def run(self, start: str = None, end: str = None, excluded_periods: List[Dict[str, str]] = None):
         """
         @brief Main entry point for the pairs exploration.
         """
@@ -33,6 +33,13 @@ class PairsExplorationPipeline:
         if prices is None or prices.empty:
             logger.error(f"Could not load price panel for {self.universe_name}")
             return False
+
+        # Apply Excluded Periods
+        if excluded_periods:
+            for period in excluded_periods:
+                p_start, p_end = period['start'], period['end']
+                logger.info(f"Excluding period: {p_start} to {p_end}")
+                prices = prices[~((prices.index >= p_start) & (prices.index <= p_end))]
 
         # 2. Step A: Add a returns panel
         logger.info("Computing log returns panel...")
@@ -203,8 +210,16 @@ class PairsExplorationPipeline:
             pos[z.abs() < self.pairs_config.z_exit] = 0
             pos = pos.ffill().fillna(0)
             
-            # 2. Daily P&L Calculation
-            # return_spread = return_A - beta_{t-1} * return_B
+            # 2. Regime Filter (Sit out during high volatility)
+            if self.pairs_config.regime_filter:
+                # Use a 20-day rolling vol of the spread
+                spread_vol = spread.rolling(window=20).std()
+                vol_threshold = spread_vol.quantile(0.9) # Exclude top 10% vol days
+                regime_mask = spread_vol < vol_threshold
+                pos = pos * regime_mask.astype(int)
+                logger.info(f"Regime filter active for {a}/{b}: sit-out threshold @ {vol_threshold:.4f}")
+            
+            # 3. Daily P&L Calculation
             pair_return = pos.shift(1) * (returns[a] - beta_series.shift(1) * returns[b])
             pair_return = pair_return.fillna(0)
             

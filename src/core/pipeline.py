@@ -45,7 +45,8 @@ class QuantPipeline:
             )
             success = pipeline.run(
                 start=config.data.start_date, 
-                end=config.data.end_date
+                end=config.data.end_date,
+                excluded_periods=config.data.excluded_periods
             )
         else:
             logger.error(f"Unknown analysis mode: {mode}")
