@@ -49,6 +49,12 @@
           "minimum": 0.0,
           "default": 0.5,
           "description": "Z-score threshold for closing a position."
+        },
+        "hedge_mode": {
+          "type": "string",
+          "enum": ["static_ols", "kalman_filter"],
+          "default": "static_ols",
+          "description": "Method for calculating the hedge ratio."
         }
       },
       "additionalProperties": false

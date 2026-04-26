@@ -17,6 +17,7 @@ class PairsConfig:
     z_window: int = 60
     z_entry: float = 2.0
     z_exit: float = 0.5
+    hedge_mode: str = "static_ols"
 
 @dataclass
 class Config:

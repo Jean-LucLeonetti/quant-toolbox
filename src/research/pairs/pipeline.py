@@ -185,11 +185,17 @@ class PairsExplorationPipeline:
             a, b = row['Asset_1'], row['Asset_2']
             gamma = row['Hedge_Ratio']
             
-            # 1. Z-Score Signal Generation
-            y = prices[a]
-            x = sm.add_constant(prices[b])
-            spread = sm.OLS(y, x).fit().resid
+            # 1. Spread and Hedge Ratio Generation
+            if self.pairs_config.hedge_mode == "kalman_filter":
+                spread, beta_series = self._compute_kalman_spread(prices[a], prices[b])
+            else:
+                y_ols = prices[a]
+                x_ols = sm.add_constant(prices[b])
+                model_ols = sm.OLS(y_ols, x_ols).fit()
+                spread = model_ols.resid
+                beta_series = pd.Series(row['Hedge_Ratio'], index=spread.index)
             
+            # Z-Score Signal Generation
             w = self.pairs_config.z_window
             mu = spread.rolling(window=w).mean()
             sigma = spread.rolling(window=w).std()
@@ -203,9 +209,8 @@ class PairsExplorationPipeline:
             pos = pos.ffill().fillna(0)
             
             # 2. Daily P&L Calculation
-            # return_spread = return_A - beta * return_B
-            # We use .shift(1) to avoid lookahead (position at end of t-1 determines return at t)
-            pair_return = pos.shift(1) * (returns[a] - gamma * returns[b])
+            # return_spread = return_A - beta_{t-1} * return_B
+            pair_return = pos.shift(1) * (returns[a] - beta_series.shift(1) * returns[b])
             pair_return = pair_return.fillna(0)
             
             # Cumulative P&L
@@ -250,13 +255,16 @@ class PairsExplorationPipeline:
         
         for _, row in pairs_df.iterrows():
             a, b = row['Asset_1'], row['Asset_2']
-            gamma = row['Hedge_Ratio']
             
-            # Compute spread
-            y = prices[a]
-            x = sm.add_constant(prices[b])
-            model = sm.OLS(y, x).fit()
-            spread = model.resid
+            # Compute spread components
+            if self.pairs_config.hedge_mode == "kalman_filter":
+                spread, beta_series = self._compute_kalman_spread(prices[a], prices[b])
+                logger.info(f"Using Kalman Filter for {a} vs {b}")
+            else:
+                y_ols = prices[a]
+                x_ols = sm.add_constant(prices[b])
+                model_ols = sm.OLS(y_ols, x_ols).fit()
+                spread = model_ols.resid
             
             # Rolling Z-Score
             mu = spread.rolling(window=window).mean()
@@ -297,6 +305,47 @@ class PairsExplorationPipeline:
             save_path = os.path.join(output_dir, f"{a}_{b}_zscore_pos.png")
             fig.savefig(save_path)
             plt.close(fig)
+
+    def _compute_kalman_spread(self, y: pd.Series, x: pd.Series):
+        """
+        @brief Computes the dynamic hedge ratio and spread using a Kalman Filter.
+        """
+        # H_t = [x_t, 1]
+        # State: [beta, alpha]
+        obs_mat = np.vstack([x.values, np.ones(len(x))]).T
+        
+        # Hyperparameters (can be tuned)
+        delta = 1e-5 
+        Q = delta / (1 - delta) * np.eye(2) 
+        R = 0.0001 # Small measurement noise
+        
+        # Initial states
+        theta = np.zeros(2) 
+        P = np.eye(2)
+        
+        betas = []
+        spreads = []
+        
+        for t in range(len(y)):
+            # Predict
+            P = P + Q
+            
+            # Update
+            H = obs_mat[t]
+            y_obs = y.iloc[t]
+            
+            # Innovation
+            e = y_obs - np.dot(H, theta)
+            S = np.dot(H, np.dot(P, H.T)) + R
+            K = np.dot(P, H.T) / S
+            
+            theta = theta + K * e
+            P = P - np.outer(K, np.dot(H, P))
+            
+            betas.append(theta[0])
+            spreads.append(e) 
+            
+        return pd.Series(spreads, index=y.index), pd.Series(betas, index=y.index)
 
     def _plot_spread_series(self, prices: pd.DataFrame, pairs_df: pd.DataFrame):
         """
