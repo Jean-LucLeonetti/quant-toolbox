@@ -5,9 +5,9 @@ data:
     start: '2020-02-20'
   start_date: '2015-01-01'
   ticker: FLY
-  universe: etf_commodity
+  universe: etf_sector
 pairs:
-  coint_mode: johansen
+  coint_mode: engle_granger
   hedge_mode: static_ols
   portfolio_size: 30
   regime_filter: true

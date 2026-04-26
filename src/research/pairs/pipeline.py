@@ -10,6 +10,7 @@ from src.core.logger import setup_logger
 from src.data.loader import load_universe_prices
 from src.data.store import DataStore
 from src.core.config import PairsConfig
+from src.backtesting.engine import BacktestEngine
 
 logger = setup_logger(__name__)
 
@@ -216,7 +217,6 @@ class PairsExplorationPipeline:
         
         for _, row in pairs_df.iterrows():
             a, b = row['Asset_1'], row['Asset_2']
-            gamma = row['Hedge_Ratio']
             
             # 1. Spread and Hedge Ratio Generation
             if self.pairs_config.hedge_mode == "kalman_filter":
@@ -251,49 +251,33 @@ class PairsExplorationPipeline:
                 logger.info(f"Regime filter active for {a}/{b}: sit-out threshold @ {vol_threshold:.4f}")
             
             # 3. Daily P&L Calculation
-            pair_return = pos.shift(1) * (returns[a] - beta_series.shift(1) * returns[b])
-            pair_return = pair_return.fillna(0)
-            
-            # Cumulative P&L
-            cum_ret = pair_return.cumsum()
-            equity_curve = np.exp(cum_ret) * 100
-            
-            # Stats (Standardized Arithmetic for research consistency)
-            total_return = (equity_curve.iloc[-1] / 100) - 1
-            ann_ret = pair_return.mean() * 252
-            ann_vol = pair_return.std() * np.sqrt(252)
-            sharpe = (ann_ret / ann_vol) if ann_vol > 0 else 0
-            
-            # Trade Stats
-            # Detect changes in position to count trades (entry/exit)
-            # A full trade is open (non-zero) then close (zero)
-            trade_changes = pos.diff().fillna(0)
-            entries = (pos != 0) & (pos.shift(1) == 0)
-            num_trades = entries.sum()
+            test_ret = returns[a] - beta_series.shift(1) * returns[b]
+            perf = BacktestEngine.compute_performance(
+                positions=pos,
+                asset_returns=test_ret,
+                portfolio_size=self.pairs_config.portfolio_size
+            )
             
             # Simple win-rate (percentage of days with positive return while in a position)
-            # This is a proxy for trade-level alpha
-            win_rate = (pair_return[pos != 0] > 0).mean() if num_trades > 0 else 0
+            win_rate = (perf['daily_pnl'][pos != 0] > 0).mean() if perf['num_trades'] > 0 else 0
             
             metrics.append({
                 'Asset_1': a,
                 'Asset_2': b,
-                'Ann_Return': ann_ret,
-                'Sharpe': sharpe,
-                'Num_Trades': num_trades,
+                'Ann_Return': perf['ann_return'],
+                'Sharpe': perf['sharpe'],
+                'Num_Trades': perf['num_trades'],
                 'Win_Rate': win_rate
             })
             
-            # Store daily returns for portfolio aggregation (scaled by 1/N)
-            all_daily_returns[f"{a}_{b}"] = pair_return / self.pairs_config.portfolio_size
+            # Store daily returns for portfolio aggregation
+            all_daily_returns[f"{a}_{b}"] = perf['daily_pnl']
             
             # Plot
             fig, ax = plt.subplots(figsize=(12, 6))
-            equity_curve.plot(ax=ax, color='green', lw=2)
-            ax.set_title(f"Naive Equity Curve: {a} vs {b}", fontsize=14)
-            ax.set_ylabel("Equity (Base 100)")
-            ax.grid(True, alpha=0.3)
-            ax.text(0.02, 0.95, f"Total Return: {total_return:.1%}\nAnn. Return: {ann_ret:.1%}\nSharpe: {sharpe:.2f}", 
+            perf['equity_curve'].plot(ax=ax, title=f"Naive Pair Backtest: {a}-{b}")
+            ax.set_ylabel("Equity ($)")
+            ax.text(0.02, 0.95, f"Ann. Return: {perf['ann_return']:.1%}\nSharpe: {perf['sharpe']:.2f}", 
                     transform=ax.transAxes, verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.5))
             
             save_path = os.path.join(output_dir, f"{a}_{b}_equity.png")
@@ -443,9 +427,10 @@ class PairsExplorationPipeline:
         
         best_sharpe = coint_df['Sharpe'].max() if 'Sharpe' in coint_df.columns else np.nan
         
-        port_ann_ret = portfolio_returns.mean() * 252
-        port_ann_vol = portfolio_returns.std() * np.sqrt(252)
-        port_sharpe = port_ann_ret / port_ann_vol if port_ann_vol > 0 else 0
+        # 4. Aggregated Portfolio results using core engine
+        perf_port = BacktestEngine.aggregate_portfolio(pd.DataFrame(portfolio_returns))
+        port_sharpe = perf_port['sharpe']
+        port_ann_ret = perf_port['ann_return']
         
         # If we have walk-forward metrics, we use the average training performance as the baseline
         # to ensure an apples-to-apples 'Degradation' metric.
@@ -612,15 +597,17 @@ class PairsExplorationPipeline:
                                 spread_vol = spread.rolling(20).std().bfill()
                                 pos = pos * (spread_vol < vol_threshold).astype(int)
                             
-                            # 4. Out-of-Sample P&L
-                            pair_ret = pos.shift(1) * (test_returns[a] - beta_series.shift(1) * test_returns[b])
-                            # CRITICAL: Scaling must match In-Sample (divide by target N, not active count)
-                            fold_pnl += pair_ret.fillna(0) / n
-                            active += 1
+                            # 4. Out-of-Sample P&L via Core Engine
+                            test_ret = test_returns[a] - beta_series.shift(1) * test_returns[b]
+                            perf = BacktestEngine.compute_performance(
+                                positions=pos,
+                                asset_returns=test_ret,
+                                portfolio_size=n
+                            )
                             
-                            # Count trades for this pair in this fold
-                            entries = ((pos != 0) & (pos.shift(1) == 0)).sum()
-                            fold_trade_counts.append(entries)
+                            fold_pnl += perf['daily_pnl']
+                            active += 1
+                            fold_trade_counts.append(perf['num_trades'])
                         except Exception:
                             continue
                     
