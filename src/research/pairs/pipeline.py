@@ -153,13 +153,53 @@ class PairsExplorationPipeline:
         logger.info(f"Plotting spreads for top 5 cointegrated pairs...")
         self._plot_spread_series(prices, top_5_coint)
 
-        # 8. Plot Normalized Prices for Top Cointegrated
+        # 8. Plot Normalized Prices & Z-Scores for Top Cointegrated
         self._plot_normalized_pairs(prices, list(zip(top_5_coint['Asset_1'], top_5_coint['Asset_2'])))
+        self._plot_z_scores(prices, top_5_coint)
 
         # 9. Generate Markdown Ranking Report
         self._generate_ranking_report(coint_df)
 
         return True
+
+    def _plot_z_scores(self, prices: pd.DataFrame, pairs_df: pd.DataFrame, window: int = 60):
+        """
+        @brief Plots the rolling z-score of the spread for selected pairs.
+        """
+        output_dir = "output/pairs/z_scores"
+        os.makedirs(output_dir, exist_ok=True)
+        
+        for _, row in pairs_df.iterrows():
+            a, b = row['Asset_1'], row['Asset_2']
+            gamma = row['Hedge_Ratio']
+            
+            # Compute spread
+            y = prices[a]
+            x = sm.add_constant(prices[b])
+            model = sm.OLS(y, x).fit()
+            spread = model.resid
+            
+            # Rolling Z-Score
+            mu = spread.rolling(window=window).mean()
+            sigma = spread.rolling(window=window).std()
+            z = (spread - mu) / sigma
+            
+            fig, ax = plt.subplots(figsize=(12, 5))
+            z.plot(ax=ax, color='teal', alpha=0.8)
+            ax.axhline(0, color='black', linestyle='-')
+            ax.axhline(2, color='red', linestyle='--')
+            ax.axhline(-2, color='red', linestyle='--')
+            ax.axhline(1, color='orange', linestyle=':')
+            ax.axhline(-1, color='orange', linestyle=':')
+            
+            ax.set_title(f"Rolling Z-Score (60d): {a} vs {b}", fontsize=14)
+            ax.set_ylabel("Z-Score")
+            ax.set_ylim(-4, 4)
+            ax.grid(True, alpha=0.3)
+            
+            save_path = os.path.join(output_dir, f"{a}_{b}_zscore.png")
+            fig.savefig(save_path)
+            plt.close(fig)
 
     def _plot_spread_series(self, prices: pd.DataFrame, pairs_df: pd.DataFrame):
         """
@@ -226,6 +266,7 @@ class PairsExplorationPipeline:
             f.write("Visual verification plots can be found in:\n")
             f.write("- **Spread Time Series**: `output/pairs/spreads/`\n")
             f.write("- **Normalized Prices**: `output/pairs/normalized/`\n")
+            f.write("- **Rolling Z-Scores**: `output/pairs/z_scores/`\n")
 
         logger.info(f"Ranking report saved to {report_path}")
 
