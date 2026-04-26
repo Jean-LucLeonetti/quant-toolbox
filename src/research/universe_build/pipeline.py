@@ -50,6 +50,15 @@ class UniversePipeline:
                 # Universe C: Commodity ETFs
                 tickers = ["GLD", "SLV", "GDX", "GDXJ", "USO", "UCO", "UNG", "BOIL", 
                           "DBA", "CORN", "WEAT", "SOYB", "PPLT", "PALL", "URNM", "URA"]
+            elif uni == "sp500_banks":
+                # Universe D: US Large Cap Banks
+                tickers = ["JPM", "BAC", "WFC", "C", "GS", "MS", "USB", "PNC", "TFC", "COF", "BK", "STT", "SCHW", "AXP", "BLK"]
+            elif uni == "sp500_tech":
+                # Universe E: Big Tech
+                tickers = ["AAPL", "MSFT", "GOOGL", "GOOG", "META", "AMZN", "NVDA", "AVGO", "ORCL", "ADBE", "CRM", "INTC", "AMD"]
+            elif uni == "sp500_reits":
+                # Universe F: REITs
+                tickers = ["PLD", "AMT", "EQIX", "CCI", "PSA", "O", "SPG", "WELL", "AVB", "EQR", "VTR", "SBAC", "DLR", "ARE", "EXR"]
             else:
                 logger.warning(f"Unknown universe type: {uni}")
                 continue

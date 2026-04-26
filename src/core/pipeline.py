@@ -30,7 +30,11 @@ class QuantPipeline:
         elif mode == "universe_build":
             pipeline = UniversePipeline()
             # Refresh our core universes
-            success = pipeline.refresh(["sp500", "sp500_utilities", "sp500_utilities_staples", "etf_pairs", "etf_sector", "etf_country", "etf_commodity"])
+            success = pipeline.refresh([
+                "sp500", "sp500_utilities", "sp500_utilities_staples", 
+                "etf_pairs", "etf_sector", "etf_country", "etf_commodity",
+                "sp500_banks", "sp500_tech", "sp500_reits"
+            ])
         elif mode == "data_build":
             pipeline = DataBuildPipeline()
             success = pipeline.build(
