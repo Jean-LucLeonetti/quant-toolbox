@@ -684,7 +684,34 @@ class PairsExplorationPipeline:
         oos_avg_hold = np.mean(all_oos_hold_times) if all_oos_hold_times else 0
         
         logger.info(f"Walk-Forward OOS Sharpe: {wf_sharpe:.3f} ({fold} folds, {len(oos_returns)} total days)")
+        
+        # Plot the Walk-Forward Equity Curve
+        self._plot_walk_forward_curve(oos_returns, wf_sharpe)
+        
         return wf_sharpe, len(oos_returns), avg_wf_trades, avg_train_sharpe, {'trade_sharpe': oos_trade_sharpe, 'avg_hold': oos_avg_hold}
+
+    def _plot_walk_forward_curve(self, oos_returns: pd.Series, sharpe: float):
+        """
+        @brief Plots the continuous out-of-sample equity curve from walk-forward validation.
+        """
+        cum_ret = (1 + oos_returns).cumprod()
+        ann_ret = oos_returns.mean() * 252
+        
+        fig, ax = plt.subplots(figsize=(12, 6))
+        ax.plot(cum_ret.index, cum_ret, color='darkgreen', linewidth=2, label='Walk-Forward OOS')
+        ax.axhline(1, color='black', alpha=0.3)
+        ax.fill_between(cum_ret.index, 1, cum_ret, color='green', alpha=0.1)
+        
+        ax.set_title(f"Walk-Forward Out-of-Sample Performance ({self.universe_name})\nAnn. Return: {ann_ret*100:.1f}% | OOS Sharpe: {sharpe:.2f}")
+        ax.set_ylabel("Growth of $1")
+        ax.grid(True, alpha=0.3)
+        ax.legend()
+        
+        report_dir = os.path.join(self.run_dir, "pairs", "backtests")
+        os.makedirs(report_dir, exist_ok=True)
+        fig.savefig(os.path.join(report_dir, f"{self.universe_name}_walk_forward_equity.png"))
+        plt.close(fig)
+        logger.info(f"Walk-forward equity curve saved to {report_dir}")
 
     def _perform_coint_test(self, y: pd.Series, x: pd.Series) -> Tuple[float, float, bool]:
         """
