@@ -251,11 +251,24 @@ class PairsExplorationPipeline:
                 pos = pos * regime_mask.astype(int)
                 logger.info(f"Regime filter active for {a}/{b}: sit-out threshold @ {vol_threshold:.4f}")
             
-            # 3. Daily P&L Calculation
-            test_ret = returns[a] - beta_series.shift(1) * returns[b]
+            # 3. Daily P&L Calculation with Transaction Costs
+            # Construct weight DataFrame for turnover calculation
+            weights = pd.DataFrame({
+                a: pos,
+                b: -pos * beta_series
+            }, index=pos.index)
+            
+            # Asset returns DataFrame
+            asset_rets_df = pd.DataFrame({
+                a: returns[a],
+                b: returns[b]
+            }, index=returns.index)
+
             perf = BacktestEngine.compute_performance(
-                positions=pos,
-                asset_returns=test_ret,
+                positions=weights,
+                asset_returns=asset_rets_df,
+                transaction_cost_bps=self.pairs_config.transaction_costs_bps,
+                rebalance_threshold=self.pairs_config.rebalance_threshold,
                 portfolio_size=self.pairs_config.portfolio_size
             )
             
@@ -606,11 +619,22 @@ class PairsExplorationPipeline:
                                 spread_vol = spread.rolling(20).std().bfill()
                                 pos = pos * (spread_vol < vol_threshold).astype(int)
                             
-                            # 4. Out-of-Sample P&L via Core Engine
-                            test_ret = test_returns[a] - beta_series.shift(1) * test_returns[b]
+                            # 4. Out-of-Sample P&L via Core Engine with Costs
+                            weights = pd.DataFrame({
+                                a: pos,
+                                b: -pos * beta_series
+                            }, index=pos.index)
+                            
+                            asset_rets_df = pd.DataFrame({
+                                a: test_returns[a],
+                                b: test_returns[b]
+                            }, index=test_returns.index)
+
                             perf = BacktestEngine.compute_performance(
-                                positions=pos,
-                                asset_returns=test_ret,
+                                positions=weights,
+                                asset_returns=asset_rets_df,
+                                transaction_cost_bps=self.pairs_config.transaction_costs_bps,
+                                rebalance_threshold=self.pairs_config.rebalance_threshold,
                                 portfolio_size=n
                             )
                             

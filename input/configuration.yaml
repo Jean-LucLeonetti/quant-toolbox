@@ -10,7 +10,9 @@ pairs:
   coint_mode: johansen
   hedge_mode: kalman_filter
   portfolio_size: 30
+  rebalance_threshold: 0.05
   regime_filter: true
+  transaction_costs_bps: 5.0
   wf_test_months: 6
   wf_train_months: 36
   z_entry: 2.0

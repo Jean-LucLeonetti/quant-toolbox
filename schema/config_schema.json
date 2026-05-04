@@ -95,6 +95,18 @@
           "minimum": 1,
           "default": 6,
           "description": "Walk-forward out-of-sample test window length in months."
+        },
+        "transaction_costs_bps": {
+          "type": "number",
+          "minimum": 0.0,
+          "default": 0.0,
+          "description": "Flat transaction cost penalty in basis points."
+        },
+        "rebalance_threshold": {
+          "type": "number",
+          "minimum": 0.0,
+          "default": 0.0,
+          "description": "Minimum weight change to trigger a rebalance trade."
         }
       },
       "additionalProperties": false

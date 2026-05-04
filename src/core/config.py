@@ -24,6 +24,8 @@ class PairsConfig:
     portfolio_size: int = 10
     wf_train_months: int = 36  # Walk-forward training window (months)
     wf_test_months: int = 6    # Walk-forward out-of-sample test window (months)
+    transaction_costs_bps: float = 0.0  # Flat penalty in basis points (e.g. 5.0)
+    rebalance_threshold: float = 0.0    # Minimum weight change to trigger a trade
 
 @dataclass
 class Config:

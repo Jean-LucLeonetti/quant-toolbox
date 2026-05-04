@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Union, Optional
 import logging
 
 logger = logging.getLogger(__name__)
@@ -15,22 +15,58 @@ class BacktestEngine:
     
     @staticmethod
     def compute_performance(
-        positions: pd.Series, 
-        asset_returns: pd.Series, 
+        positions: Union[pd.Series, pd.DataFrame], 
+        asset_returns: Union[pd.Series, pd.DataFrame], 
+        transaction_cost_bps: float = 0.0,
+        rebalance_threshold: float = 0.0,
         portfolio_size: int = 1
     ) -> Dict[str, Any]:
         """
-        @brief Computes P&L and risk metrics for a single position series.
-        @param positions: Series of target positions (+1, 0, -1)
-        @param asset_returns: Series of daily asset returns
-        @param portfolio_size: Divisor for capital allocation (if part of a multi-asset portfolio)
-        @return Dictionary of metrics including ann_return, ann_vol, sharpe, and daily_pnl
+        @brief Computes P&L and risk metrics with transaction costs and rebalancing thresholds.
+        @param positions: Series or DataFrame of target positions/weights.
+        @param asset_returns: Series or DataFrame of asset returns.
+        @param transaction_cost_bps: Cost per unit of turnover in basis points.
+        @param rebalance_threshold: Minimum change in weight to trigger a rebalance.
+        @param portfolio_size: Divisor for capital allocation.
         """
-        # Ensure we shift positions to avoid look-ahead bias (trade occurs at T+1)
-        # Note: In-sample we might already have shifted, but the engine enforces it for safety.
-        # However, to be flexible, we assume 'positions' are the held state at the close of T.
-        # The P&L for T+1 is positions[T] * returns[T+1].
-        pnl = positions.shift(1).fillna(0) * asset_returns
+        # Convert to DataFrame for unified handling if they are Series
+        if isinstance(positions, pd.Series):
+            positions = positions.to_frame()
+        if isinstance(asset_returns, pd.Series):
+            asset_returns = asset_returns.to_frame()
+
+        # Handle Rebalancing Threshold (Path-dependent)
+        if rebalance_threshold > 0:
+            actual_positions = positions.copy()
+            # We must iterate to respect path-dependency of 'current weight'
+            # Note: For large DataFrames this might be slow, but it's necessary for correctness.
+            curr_pos = np.zeros(positions.shape[1])
+            for i in range(len(positions)):
+                target_pos = positions.iloc[i].values
+                # Check if change exceeds threshold
+                if np.any(np.abs(target_pos - curr_pos) > rebalance_threshold):
+                    curr_pos = target_pos
+                actual_positions.iloc[i] = curr_pos
+            positions = actual_positions
+
+        # Calculate Gross Daily PnL
+        # The P&L for T is positions[T-1] * returns[T].
+        daily_asset_pnl = positions.shift(1).fillna(0) * asset_returns
+        gross_pnl = daily_asset_pnl.sum(axis=1)
+
+        # Calculate Transaction Costs
+        # Turnover = | target_w_t - drifted_w_{t-1} |
+        # drifted_w_{t-1} = w_{t-1} * exp(r_t)
+        # Using exp(r_t) for log returns compatibility
+        drifted_pos = positions.shift(1).fillna(0) * np.exp(asset_returns.fillna(0))
+        turnover = (positions - drifted_pos).abs()
+        
+        # Apply cost (bps to decimal)
+        c = transaction_cost_bps / 10000.0
+        daily_costs = turnover.sum(axis=1) * c
+        
+        # Net Daily PnL
+        pnl = gross_pnl - daily_costs
         
         # Scale by portfolio size
         scaled_pnl = pnl / portfolio_size
@@ -46,9 +82,9 @@ class BacktestEngine:
         drawdown = (equity / running_max) - 1
         max_dd = drawdown.min()
         # Identify discrete trades: entry (pos flips from 0 to non-zero) to exit (pos flips to 0)
-        is_active = positions != 0
-        starts = (is_active) & (positions.shift(1).fillna(0) == 0)
-        ends = (is_active) & (positions.shift(-1).fillna(0) == 0)
+        is_active = (positions != 0).any(axis=1)
+        starts = (is_active) & (is_active.shift(1).fillna(False) == False)
+        ends = (is_active) & (is_active.shift(-1).fillna(False) == False)
         
         trade_returns = []
         hold_times = []
