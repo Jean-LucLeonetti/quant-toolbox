@@ -18,6 +18,10 @@ def temp_config_file(tmp_path):
             "ticker": "TSLA",
             "start_date": "2022-01-01",
             "end_date": "2022-12-31"
+        },
+        "pairs": {
+            "transaction_costs_bps": 5.0,
+            "rebalance_threshold": 0.05
         }
     }
     with open(config_file, "w") as f:
@@ -32,6 +36,8 @@ def test_config_load(temp_config_file):
     assert config.data.ticker == "TSLA"
     assert config.data.start_date == "2022-01-01"
     assert config.data.end_date == "2022-12-31"
+    assert config.pairs.transaction_costs_bps == 5.0
+    assert config.pairs.rebalance_threshold == 0.05
 
 def test_config_from_dict():
     """

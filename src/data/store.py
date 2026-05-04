@@ -78,21 +78,37 @@ class DataStore:
         logger.info(f"Upserted {len(df)} tickers to metadata database.")
 
     def update_universe_membership(self, tickers: List[str], universe_name: str):
-        """Updates membership for a given universe."""
+        """Updates membership for a given universe, handling additions and removals."""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
         today = date.today().isoformat()
         
+        # 1. Mark existing members not in the new list as ended (if not already ended)
+        # We use a parameterized approach for safety if the list is small, 
+        # but for large lists we use a temporary table for the join/anti-join.
+        cursor.execute("CREATE TEMPORARY TABLE new_membership (ticker TEXT)")
+        cursor.executemany("INSERT INTO new_membership VALUES (?)", [(t,) for t in tickers])
+        
+        cursor.execute("""
+            UPDATE universe_membership 
+            SET end_date = ? 
+            WHERE universe = ? 
+              AND end_date IS NULL 
+              AND ticker NOT IN (SELECT ticker FROM new_membership)
+        """, (today, universe_name))
+        
+        # 2. Insert new members (if they don't already have an active record)
         for ticker in tickers:
             cursor.execute("""
                 INSERT OR IGNORE INTO universe_membership (ticker, universe, start_date)
                 VALUES (?, ?, ?)
             """, (ticker, universe_name, today))
             
+        cursor.execute("DROP TABLE new_membership")
         conn.commit()
         conn.close()
-        logger.info(f"Updated membership for universe: {universe_name}")
+        logger.info(f"Updated membership for universe: {universe_name} (Active: {len(tickers)})")
 
     def query_universe(self, universe_name: str) -> List[str]:
         """Returns the current constituents of a universe."""
